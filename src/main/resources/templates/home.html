@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WiSo Chatbot</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; }
+    .row { display: flex; gap: 8px; }
+    input { flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid #ccc; }
+    button { padding: 10px 14px; border-radius: 10px; border: 1px solid #ccc; cursor: pointer; }
+    #out { margin-top: 12px; white-space: pre-wrap; }
+    .muted { color: #666; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>WiSo Chatbot</h1>
+  <p class="muted">MVP UI – später LTI + RAG.</p>
+
+  <div class="card">
+    <div class="row">
+      <input id="msg" placeholder="Schreib deine Frage…" />
+      <button id="send">Senden</button>
+    </div>
+    <div id="out" class="muted">Noch keine Antwort.</div>
+  </div>
+
+  <script>
+    const msg = document.getElementById('msg');
+    const out = document.getElementById('out');
+    document.getElementById('send').addEventListener('click', async () => {
+      const text = msg.value.trim();
+      if (!text) return;
+      out.textContent = "…denke nach";
+      const res = await fetch('/api/echo?msg=' + encodeURIComponent(text));
+      out.textContent = await res.text();
+    });
+    msg.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('send').click();
+    });
+  </script>
+</body>
+</html>
