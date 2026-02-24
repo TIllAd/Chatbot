@@ -64,4 +64,41 @@ public class LlmService {
             return "⚠️ Unerwarteter Fehler: " + e.getMessage();
         }
     }
+    public String replyWithHistory(List<Map<String, String>> messages) {
+        try {
+            Map<String, Object> body = Map.of(
+                    "model", model,
+                    "messages", messages,
+                    "stream", false
+            );
+
+            Map<?, ?> res = client.post()
+                    .uri("/api/chat")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            if (res == null) return "(keine Antwort)";
+
+            // Ollama: res.message.content
+            Object msgObj = res.get("message");
+            if (msgObj instanceof Map<?, ?> msgMap) {
+                Object content = msgMap.get("content");
+                if (content != null) return content.toString();
+            }
+
+            // Fallback: manche Responses nutzen "response"
+            Object response = res.get("response");
+            if (response != null) return response.toString();
+
+            return "(keine Antwort)";
+
+        } catch (WebClientResponseException e) {
+            return "⚠️ Ollama Fehler: HTTP " + e.getStatusCode().value() + " – " + e.getResponseBodyAsString();
+        } catch (Exception e) {
+            return "⚠️ Unerwarteter Fehler: " + e.getMessage();
+        }
+    }
 }
