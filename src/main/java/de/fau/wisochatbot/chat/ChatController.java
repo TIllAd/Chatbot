@@ -17,8 +17,11 @@ public class ChatController {
         this.llmService = llmService;
     }
 
-    public record ChatRequest(String message) {}
-    public record ChatResponse(String reply) {}
+    public record ChatRequest(String message) {
+    }
+
+    public record ChatResponse(String reply) {
+    }
 
     @PostMapping("/chat")
     public ChatResponse chat(@RequestBody ChatRequest req, HttpSession session) {
@@ -44,13 +47,16 @@ public class ChatController {
         // Antwort zur History hinzufügen
         history.add(Map.of("role", "assistant", "content", answer));
 
-        // History begrenzen (optional aber wichtig)
-        int maxMessages = 20;
-        if (history.size() > maxMessages) {
-            List<Map<String, String>> trimmed = new ArrayList<>();
-            trimmed.add(history.get(0)); // System behalten
-            trimmed.addAll(history.subList(history.size() - (maxMessages - 1), history.size()));
-            history = trimmed;
+        int maxHistorySize = 21; // 1 System + 20 letzte Nachrichten
+
+        if (history.size() > maxHistorySize) {
+            Map<String, String> system = history.get(0);
+
+            List<Map<String, String>> lastMessages = history.subList(history.size() - 20, history.size());
+
+            history = new ArrayList<>();
+            history.add(system);
+            history.addAll(lastMessages);
         }
 
         session.setAttribute("history", history);
