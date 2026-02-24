@@ -3,33 +3,12 @@ plugins {
 	id 'org.springframework.boot' version '3.5.11'
 	id 'io.spring.dependency-management' version '1.1.7'
 	id 'com.diffplug.spotless' version '6.25.0'
+	id 'com.github.spotbugs' version '6.0.15'
 }
 
 group = 'de.fau'
 version = '0.0.1-SNAPSHOT'
-description = 'Chatbot '
-
-
-spotless {
-	java {
-		// Beispiel: Google Java Format
-		googleJavaFormat()
-
-		// oder: import order / remove unused imports
-		removeUnusedImports()
-		importOrder()
-		trimTrailingWhitespace()
-		endWithNewline()
-	}
-
-	// optional: Gradle Dateien formatieren
-	groovyGradle {
-		target '*.gradle'
-		greclipse()
-		trimTrailingWhitespace()
-		endWithNewline()
-	}
-}
+description = 'Chatbot'
 
 java {
 	toolchain {
@@ -41,16 +20,45 @@ repositories {
 	mavenCentral()
 }
 
+spotless {
+	java {
+		googleJavaFormat()
+		removeUnusedImports()
+		importOrder()
+		trimTrailingWhitespace()
+		endWithNewline()
+	}
+
+	groovyGradle {
+		target '*.gradle'
+		indentWithTabs()
+		trimTrailingWhitespace()
+		endWithNewline()
+	}
+}
+
+spotbugs {
+	toolVersion = '4.8.3'
+	ignoreFailures = false
+	effort = 'max'
+	reportLevel = 'low'
+}
+
+tasks.withType(com.github.spotbugs.snom.SpotBugsTask).configureEach {
+	reports {
+		html.required = true
+		xml.required = false
+	}
+}
+
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
-
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
-
 
 tasks.named('test') {
 	useJUnitPlatform()
