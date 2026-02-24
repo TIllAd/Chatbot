@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WiSo Chatbot</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; }
+    .row { display: flex; gap: 8px; }
+    input { flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid #ccc; }
+    button { padding: 10px 14px; border-radius: 10px; border: 1px solid #ccc; cursor: pointer; }
+    #chat { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .msg { padding: 10px 12px; border-radius: 10px; border: 1px solid #eee; white-space: pre-wrap; }
+    .me { align-self: flex-end; background: #eef5ff; border-color: #d7e7ff; }
+    .bot { align-self: flex-start; background: #f7f7f7; }
+    .muted { color:#666; font-size: 0.9rem; }
+  </style>
+</head>
+
+<body>
+  <h1>WiSo Chatbot</h1>
+  <p class="muted">MVP UI – aktuell Echo, später LTI 1.3 + RAG.</p>
+
+  <div class="card">
+    <div class="row">
+      <input id="msg" placeholder="Schreib deine Frage…" />
+      <button id="send">Senden</button>
+    </div>
+
+    <div id="chat">
+      <div class="msg bot">Hi! 👋 Stell eine Frage.</div>
+    </div>
+  </div>
+
+  <script>
+    const msg = document.getElementById('msg');
+    const chat = document.getElementById('chat');
+    const sendBtn = document.getElementById('send');
+
+    function addMessage(who, text) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + (who === 'me' ? 'me' : 'bot');
+      div.textContent = text;
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    async function send() {
+      const text = msg.value.trim();
+      if (!text) return;
+
+      addMessage('me', text);
+      msg.value = '';
+      msg.focus();
+      sendBtn.disabled = true;
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text })
+        });
+
+        if (!res.ok) {
+          addMessage('bot', `Fehler: HTTP ${res.status}`);
+          return;
+        }
+
+        const data = await res.json();
+        addMessage('bot', data.reply ?? '(keine Antwort)');
+      } catch (e) {
+        addMessage('bot', 'Fehler: Server nicht erreichbar.');
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+
+    sendBtn.addEventListener('click', send);
+    msg.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') send();
+    });
+  </script>
+</body>
+</html>
