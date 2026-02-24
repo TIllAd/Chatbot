@@ -22,7 +22,9 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Spotless Check
-        run: ./gradlew spotlessCheck --no-daemon
+        run: |
+          echo "Running Spotless..."
+          ./gradlew spotlessCheck --no-daemon
 
       - name: Build
         run: ./gradlew build --no-daemon
