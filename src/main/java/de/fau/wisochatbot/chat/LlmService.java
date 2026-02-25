@@ -1,13 +1,13 @@
 package de.fau.wisochatbot.chat;
 
+import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
-import java.util.List;
-import java.util.Map;
 @Service
 public class LlmService {
 
@@ -22,29 +22,55 @@ public class LlmService {
     this.model = model;
   }
 
-  public Map<?, ?> reply(String message, boolean debug) {
+  public String reply(String message) {
     try {
-      Map<String, Object> body = Map.of("message", message);
-
-      String uri = debug ? "/chat?debug=true" : "/chat";
+      Map<String, Object> body =
+          Map.of(
+              "model",
+              model,
+              "messages",
+              List.of(
+                  Map.of(
+                      "role",
+                      "system",
+                      "content",
+                      "Du bist der WiSo-Chatbot. Antworte kurz und hilfreich auf Deutsch."),
+                  Map.of("role", "user", "content", message)),
+              "stream",
+              false);
 
       Map<?, ?> res =
           client
               .post()
-              .uri(uri)
+              .uri("/api/chat")
               .contentType(MediaType.APPLICATION_JSON)
               .bodyValue(body)
               .retrieve()
               .bodyToMono(Map.class)
               .block();
 
-      if (res == null) return Map.of("reply", "(keine Antwort)");
-      return res;
+      if (res == null) return "(keine Antwort)";
+
+      // Ollama: res.message.content
+      Object msgObj = res.get("message");
+      if (msgObj instanceof Map<?, ?> msgMap) {
+        Object content = msgMap.get("content");
+        if (content != null) return content.toString();
+      }
+
+      // Fallback: manche Responses nutzen "response"
+      Object response = res.get("response");
+      if (response != null) return response.toString();
+
+      return "(keine Antwort)";
 
     } catch (WebClientResponseException e) {
-      return Map.of("reply", "⚠️ Fehler: HTTP " + e.getStatusCode().value());
+      return "⚠️ Ollama Fehler: HTTP "
+          + e.getStatusCode().value()
+          + " – "
+          + e.getResponseBodyAsString();
     } catch (Exception e) {
-      return Map.of("reply", "⚠️ Unerwarteter Fehler: " + e.getMessage());
+      return "⚠️ Unerwarteter Fehler: " + e.getMessage();
     }
   }
 }

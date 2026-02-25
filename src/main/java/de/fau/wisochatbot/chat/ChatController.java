@@ -5,8 +5,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import java.util.Map;
 
+// src/main/java/.../ChatController.java
 @RestController
 @RequestMapping("/api")
 public class ChatController {
@@ -18,6 +18,8 @@ public class ChatController {
   }
 
   public record ChatRequest(String message) {}
+
+  public record ChatResponse(String reply) {}
 
   @PostMapping("/chat")
   public Map<?, ?> chat(

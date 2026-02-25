@@ -1,3 +1,14 @@
 /gradlew text eol=lf
 *.bat text eol=crlf
 *.jar binary
+
+# Normalize text files
+* text=auto
+
+# Gradle files
+*.gradle  text eol=lf
+*.gradle.kts text eol=lf
+
+# Scripts
+*.sh text eol=lf
+*.bat text eol=crlf
