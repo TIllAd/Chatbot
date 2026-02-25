@@ -41,7 +41,10 @@ def embed_and_store(chunks):
     except:
         pass
     
-    collection = client.create_collection("faq")
+    collection = client.create_collection(
+    "faq",
+    metadata={"hnsw:space": "cosine"}
+)
 
     for i, chunk in enumerate(chunks):
         response = ollama.embeddings(model="nomic-embed-text", prompt=chunk)
