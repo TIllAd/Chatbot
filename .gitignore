@@ -35,3 +35,8 @@ out/
 
 ### VS Code ###
 .vscode/
+
+## Wiso Rag Service ###
+wiso-rag-service/venv/
+wiso-rag-service/__pycache__/
+*.pyc
