@@ -5,7 +5,7 @@ import requests
 app = FastAPI()
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL = "llama3.1:latest"
+MODEL = "llama3.1"
 
 class ChatRequest(BaseModel):
     message: str

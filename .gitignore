@@ -40,3 +40,6 @@ out/
 wiso-rag-service/venv/
 wiso-rag-service/__pycache__/
 *.pyc
+
+## Information Docs ###
+*.docx
