@@ -15,17 +15,28 @@
     .me { align-self: flex-end; background: #eef5ff; border-color: #d7e7ff; }
     .bot { align-self: flex-start; background: #f7f7f7; }
     .muted { color:#666; font-size: 0.9rem; }
+    .debug-panel { font-size: 0.8rem; background: #1e1e1e; color: #d4d4d4; border-radius: 8px; padding: 10px; margin-top: 4px; align-self: flex-start; width: 100%; box-sizing: border-box; }
+    .debug-chunk { margin-bottom: 8px; border-bottom: 1px solid #444; padding-bottom: 8px; }
+    .debug-chunk:last-child { border-bottom: none; margin-bottom: 0; }
+    .debug-score { color: #4ec9b0; font-weight: bold; }
+    .debug-id { color: #9cdcfe; }
+    .debug-preview { color: #ce9178; display: block; margin-top: 4px; }
+    .debug-badge { font-size: 0.75rem; background: #ff9800; color: white; border-radius: 6px; padding: 2px 8px; margin-left: 8px; vertical-align: middle; }
+    .timing { color: #888; font-size: 0.75rem; display: block; margin-bottom: 8px; }
+    #debug-toggle { background: #f0f0f0; font-size: 0.85rem; }
+    #debug-toggle.active { background: #ff9800; color: white; border-color: #ff9800; }
   </style>
 </head>
 
 <body>
-  <h1>WiSo Chatbot</h1>
+  <h1>WiSo Chatbot <span id="debug-indicator" style="display:none" class="debug-badge">🔍 DEBUG</span></h1>
   <p class="muted">MVP UI – aktuell Echo, später LTI 1.3 + RAG.</p>
 
   <div class="card">
     <div class="row">
       <input id="msg" placeholder="Schreib deine Frage…" />
       <button id="send">Senden</button>
+      <button id="debug-toggle" title="Debug Mode ein/aus">🔍</button>
     </div>
 
     <div id="chat">
@@ -37,12 +48,42 @@
     const msg = document.getElementById('msg');
     const chat = document.getElementById('chat');
     const sendBtn = document.getElementById('send');
+    const debugToggle = document.getElementById('debug-toggle');
+    const debugIndicator = document.getElementById('debug-indicator');
+
+    let debugMode = false;
+
+    debugToggle.addEventListener('click', () => {
+      debugMode = !debugMode;
+      debugToggle.classList.toggle('active', debugMode);
+      debugIndicator.style.display = debugMode ? 'inline' : 'none';
+    });
 
     function addMessage(who, text) {
       const div = document.createElement('div');
       div.className = 'msg ' + (who === 'me' ? 'me' : 'bot');
       div.textContent = text;
       chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function addDebugPanel(debugData) {
+      const panel = document.createElement('div');
+      panel.className = 'debug-panel';
+
+      let html = `<strong>🔍 Retrieved Chunks</strong>`;
+      html += `<span class="timing">⏱ Retrieval: ${debugData.retrieval_ms}ms | LLM: ${debugData.llm_ms}ms | Modell: ${debugData.model}</span>`;
+
+      debugData.retrieved_chunks.forEach(chunk => {
+        html += `<div class="debug-chunk">`;
+        html += `<span class="debug-score">#${chunk.rank} Score: ${chunk.score}</span> `;
+        html += `<span class="debug-id">[${chunk.id}]</span>`;
+        html += `<span class="debug-preview">${chunk.preview}</span>`;
+        html += `</div>`;
+      });
+
+      panel.innerHTML = html;
+      chat.appendChild(panel);
       chat.scrollTop = chat.scrollHeight;
     }
 
@@ -56,7 +97,8 @@
       sendBtn.disabled = true;
 
       try {
-        const res = await fetch('/api/chat', {
+        const url = debugMode ? '/api/chat?debug=true' : '/api/chat';
+        const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: text })
@@ -69,6 +111,11 @@
 
         const data = await res.json();
         addMessage('bot', data.reply ?? '(keine Antwort)');
+
+        if (debugMode && data.debug) {
+          addDebugPanel(data.debug);
+        }
+
       } catch (e) {
         addMessage('bot', 'Fehler: Server nicht erreichbar.');
       } finally {
