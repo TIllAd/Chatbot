@@ -58,18 +58,21 @@ def tokenize(text: str) -> list[str]:
 
 
 
-
-
 def build_bm25_index():
     """Load all chunks from ChromaDB and build a BM25 index at startup."""
-    all_docs = collection.get(include=["documents"])
+    all_docs = collection.get(include=["documents", "metadatas"])
     doc_ids = all_docs["ids"]
-    doc_texts = all_docs["documents"]
+    doc_texts = all_docs["documents"]  # enriched (with tags) — used for BM25
+    doc_originals = [
+        m.get("original_text", doc_texts[i]) 
+        for i, m in enumerate(all_docs["metadatas"])
+    ]  # original (no tags) — used for LLM context
     tokenized = [tokenize(doc) for doc in doc_texts]
     bm25 = BM25Okapi(tokenized)
-    return bm25, doc_ids, doc_texts
+    return bm25, doc_ids, doc_texts, doc_originals
 
-bm25_index, all_ids, all_texts = build_bm25_index()
+bm25_index, all_ids, all_texts, all_originals = build_bm25_index()
+
 print(f"BM25 index built with {len(all_ids)} chunks")
 
 class ChatRequest(BaseModel):
@@ -124,9 +127,10 @@ def retrieve_context(question: str, n_results: int = 25):
         combined.append({
             "id": cid,
             "vector_score": v_score,
-            "bm25_score": b_score,
+            "bm25_score": b_score, 
             "combined_score": final,
-            "document": doc
+            "document": doc,
+            "original": all_originals[idx]
         })
 
     # Sort by combined score, take top n
@@ -147,16 +151,21 @@ def retrieve_context(question: str, n_results: int = 25):
         for i, item in enumerate(top)
     ]
 
-    context = "\n\n".join(item["document"] for item in top)
+    context = "\n\n".join(item["original"] for item in top)
     return context, debug_chunks, elapsed
 # --- Add these endpoints to your main.py ---
 
 @app.get("/inspect/chunks")
 def inspect_chunks():
     """Return all chunks in the collection for browsing."""
-    all_docs = collection.get(include=["documents"])
+    all_docs = collection.get(include=["documents", "metadatas"])
     chunks = [
-        {"id": all_docs["ids"][i], "text": all_docs["documents"][i]}
+        {
+            "id": all_docs["ids"][i],
+            "text": all_docs["metadatas"][i].get("original_text", all_docs["documents"][i]),
+            "keywords": all_docs["metadatas"][i].get("keywords", ""),
+            "enriched": all_docs["documents"][i]
+        }
         for i in range(len(all_docs["ids"]))
     ]
     return {"chunks": chunks}
