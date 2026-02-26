@@ -8,6 +8,12 @@ import ollama
 from rank_bm25 import BM25Okapi
 from datetime import datetime
 
+
+##
+## A small test how accurate the retrieval is, using a hand-crafted dataset of 20 queries with known expected chunks.
+##
+
+
 # --- Config (mirror main.py settings) ---
 EMBED_MODEL = "nomic-embed-text"
 VECTOR_WEIGHT = float(os.getenv("VECTOR_WEIGHT", "0.7"))
