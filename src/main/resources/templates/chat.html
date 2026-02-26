@@ -76,7 +76,7 @@
 
       debugData.retrieved_chunks.forEach(chunk => {
         html += `<div class="debug-chunk">`;
-        html += `<span class="debug-score">#${chunk.rank} Score: ${chunk.score}</span> `;
+        html += `<span class="debug-score">#${chunk.rank} Score: ${chunk.combined_score}</span> `;
         html += `<span class="debug-id">[${chunk.id}]</span>`;
         html += `<span class="debug-preview">${chunk.preview}</span>`;
         html += `</div>`;
