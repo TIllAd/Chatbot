@@ -67,17 +67,25 @@
       chat.scrollTop = chat.scrollHeight;
     }
 
-    function addDebugPanel(debugData) {
+     function addDebugPanel(debugData) {
       const panel = document.createElement('div');
       panel.className = 'debug-panel';
 
       let html = `<strong>🔍 Retrieved Chunks</strong>`;
-      html += `<span class="timing">⏱ Retrieval: ${debugData.retrieval_ms}ms | LLM: ${debugData.llm_ms}ms | Modell: ${debugData.model}</span>`;
+      html += `<span class="timing">`;
+      html += `⏱ Retrieval: ${debugData.retrieval_ms}ms | LLM: ${debugData.llm_ms}ms | Modell: ${debugData.model}`;
+      html += `</span>`;
+      html += `<span class="timing">`;
+      html += `🎯 Top Score: ${debugData.top_score} | Mode: ${debugData.mode} | Verdict: ${debugData.verdict}`;
+      html += `</span>`;
+      html += `<span class="timing">`;
+      html += `⚙️ Vec: ${(debugData.vector_weight ?? 0).toFixed(2)} | BM25: ${(debugData.bm25_weight ?? 0).toFixed(2)} | Search: ${debugData.search_mode}`;      html += `</span>`;
 
       debugData.retrieved_chunks.forEach(chunk => {
         html += `<div class="debug-chunk">`;
         html += `<span class="debug-score">#${chunk.rank} Score: ${chunk.combined_score}</span> `;
         html += `<span class="debug-id">[${chunk.id}]</span>`;
+        html += `<span style="color:#569cd6;margin-left:8px;">vec:${chunk.vector_score} bm25:${chunk.bm25_score}</span>`;
         html += `<span class="debug-preview">${chunk.preview}</span>`;
         html += `</div>`;
       });
