@@ -23,8 +23,8 @@ BM25_WEIGHT = 1 - VECTOR_WEIGHT
 CANDIDATE_POOL = int(os.getenv("CANDIDATE_POOL", "20"))
 
 # Thresholds
-HIGH_CONFIDENCE = 0.5
-LOW_CONFIDENCE = 0.3
+HIGH_CONFIDENCE = 0.9
+LOW_CONFIDENCE = 0.65
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_collection("faq")

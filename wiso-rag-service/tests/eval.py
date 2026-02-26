@@ -12,7 +12,7 @@ EMBED_MODEL = "nomic-embed-text"
 VECTOR_WEIGHT = float(os.getenv("VECTOR_WEIGHT", "0.7"))
 BM25_WEIGHT = 1 - VECTOR_WEIGHT
 CANDIDATE_POOL = int(os.getenv("CANDIDATE_POOL", "20"))
-LOW_CONFIDENCE = 0.3
+LOW_CONFIDENCE = 0.65
 
 # --- Setup ---
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
