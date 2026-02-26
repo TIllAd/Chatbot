@@ -36,12 +36,22 @@ out/
 ### VS Code ###
 .vscode/
 
+# Python
+__pycache__/
+*.pyc
+venv/
+
+## DB ##
+chroma_db
+
+
 ## Wiso Rag Service ###
 wiso-rag-service/venv/
 wiso-rag-service/__pycache__/
 *.pyc
 wiso-rag-service/chroma_db/
 
-
+# Eval results (regenerated on each run)
+eval_results/
 ## Information Docs ###
 *.docx
