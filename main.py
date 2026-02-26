@@ -15,7 +15,7 @@ DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
 # Thresholds
 HIGH_CONFIDENCE = 0.5
-LOW_CONFIDENCE = 0.
+LOW_CONFIDENCE = 0.3
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_collection("faq")
