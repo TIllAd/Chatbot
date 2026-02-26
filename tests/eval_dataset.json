@@ -1,0 +1,237 @@
+[
+  {
+    "query": "Brauche ich einen Stundenplan?",
+    "expected_chunk_id": "chunk_0",
+    "category": "exact_keyword"
+  },
+  {
+    "query": "Stundenplan erstellen",
+    "expected_chunk_id": "chunk_0",
+    "category": "short_query"
+  },
+  {
+    "query": "Wo kann ich Module anrechnen lassen?",
+    "expected_chunk_id": "chunk_1",
+    "category": "exact_keyword"
+  },
+  {
+    "query": "Anrechnung von Modulen",
+    "expected_chunk_id": "chunk_1",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Gibt es Anmeldefristen für Module?",
+    "expected_chunk_id": "chunk_2",
+    "category": "exact_keyword"
+  },
+  {
+    "query": "Was passiert wenn man das Unternehmensplanspiel nicht besteht?",
+    "expected_chunk_id": "chunk_2",
+    "category": "exact_keyword"
+  },
+  {
+    "query": "Muss ich in die Vorlesung gehen?",
+    "expected_chunk_id": "chunk_3",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Anwesenheitspflicht Vorlesung",
+    "expected_chunk_id": "chunk_3",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Unterschied Übung Tutorium",
+    "expected_chunk_id": "chunk_4",
+    "category": "short_query"
+  },
+  {
+    "query": "Was ist ein Tutorium?",
+    "expected_chunk_id": "chunk_4",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Hat jedes Modul ein Tutorium?",
+    "expected_chunk_id": "chunk_5",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Muss ich dem Regelstudienplan folgen?",
+    "expected_chunk_id": "chunk_6",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Regelstudienplan",
+    "expected_chunk_id": "chunk_6",
+    "category": "short_query"
+  },
+  {
+    "query": "Wann kann ich mich für Prüfungen anmelden?",
+    "expected_chunk_id": "chunk_7",
+    "category": "exact_keyword"
+  },
+  {
+    "query": "Prüfungsanmeldung Zeitraum",
+    "expected_chunk_id": "chunk_7",
+    "category": "short_query"
+  },
+  {
+    "query": "Wo melde ich mich für Prüfungen an?",
+    "expected_chunk_id": "chunk_8",
+    "category": "exact_keyword"
+  },
+  {
+    "query": "Prüfung über Campo anmelden",
+    "expected_chunk_id": "chunk_8",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Wie kann ich mich von einer Prüfung abmelden?",
+    "expected_chunk_id": "chunk_9",
+    "category": "exact_keyword"
+  },
+  {
+    "query": "Prüfung abmelden Frist",
+    "expected_chunk_id": "chunk_9",
+    "category": "short_query"
+  },
+  {
+    "query": "Wo finde ich meine Platznummer für die Klausur?",
+    "expected_chunk_id": "chunk_10",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Wann ist Klausurenphase?",
+    "expected_chunk_id": "chunk_11",
+    "category": "exact_keyword"
+  },
+  {
+    "query": "Klausurtermine wer legt die fest?",
+    "expected_chunk_id": "chunk_12",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Kann ich im Sommersemester Urlaub planen?",
+    "expected_chunk_id": "chunk_13",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Krank während Prüfung was tun?",
+    "expected_chunk_id": "chunk_14",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Attest Prüfung krank",
+    "expected_chunk_id": "chunk_14",
+    "category": "short_query"
+  },
+  {
+    "query": "Mehrere Termine auf Campo was bedeutet das?",
+    "expected_chunk_id": "chunk_15",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Wie beantrage ich BAföG?",
+    "expected_chunk_id": "chunk_16",
+    "category": "exact_keyword"
+  },
+  {
+    "query": "BAföG",
+    "expected_chunk_id": "chunk_16",
+    "category": "short_query"
+  },
+  {
+    "query": "Bafög Antrag stellen",
+    "expected_chunk_id": "chunk_16",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Wann muss ich mich rückmelden?",
+    "expected_chunk_id": "chunk_17",
+    "category": "exact_keyword"
+  },
+  {
+    "query": "Rückmeldung Frist Semester",
+    "expected_chunk_id": "chunk_17",
+    "category": "short_query"
+  },
+  {
+    "query": "Bekomme ich Office kostenlos?",
+    "expected_chunk_id": "chunk_18",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Microsoft Office FAU",
+    "expected_chunk_id": "chunk_18",
+    "category": "short_query"
+  },
+  {
+    "query": "Wann bekomme ich meinen Studierendenausweis?",
+    "expected_chunk_id": "chunk_19",
+    "category": "exact_keyword"
+  },
+  {
+    "query": "Lohnt sich Fachschaft?",
+    "expected_chunk_id": "chunk_20",
+    "category": "short_query"
+  },
+  {
+    "query": "Fachschaft beitreten sinnvoll?",
+    "expected_chunk_id": "chunk_20",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Kann ich neben dem Studium arbeiten?",
+    "expected_chunk_id": "chunk_21",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Nebenjob Studium",
+    "expected_chunk_id": "chunk_21",
+    "category": "short_query"
+  },
+  {
+    "query": "Wie funktioniert das Basisticket?",
+    "expected_chunk_id": "chunk_22",
+    "category": "exact_keyword"
+  },
+  {
+    "query": "Basisticket Zeiten wann gültig",
+    "expected_chunk_id": "chunk_22",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Hochschulsport wann und wo?",
+    "expected_chunk_id": "chunk_23",
+    "category": "exact_keyword"
+  },
+  {
+    "query": "Sport an der FAU",
+    "expected_chunk_id": "chunk_23",
+    "category": "paraphrase"
+  },
+  {
+    "query": "Gibt es eine Studon App?",
+    "expected_chunk_id": "chunk_24",
+    "category": "exact_keyword"
+  },
+  {
+    "query": "Was ist die beste Pizza in Nürnberg?",
+    "expected_chunk_id": null,
+    "category": "off_topic"
+  },
+  {
+    "query": "Wie wird das Wetter morgen?",
+    "expected_chunk_id": null,
+    "category": "off_topic"
+  },
+  {
+    "query": "Wer hat die Bundestagswahl gewonnen?",
+    "expected_chunk_id": null,
+    "category": "off_topic"
+  },
+  {
+    "query": "Erzähl mir einen Witz",
+    "expected_chunk_id": null,
+    "category": "off_topic"
+  }
+]
