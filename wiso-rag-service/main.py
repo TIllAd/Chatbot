@@ -187,74 +187,72 @@ def inspect_search(req: InspectSearchRequest):
         chunk["document"] = all_texts[idx]
     
     return {"results": debug_chunks, "elapsed_ms": elapsed, "query": req.query}
+
+# Replace the entire chat endpoint and add the helper function above it:
+
+def build_debug(debug_chunks, top_score, verdict, retrieval_ms, llm_ms=0):
+    """Build debug info dict — keeps chat endpoint clean."""
+    return {
+        "retrieved_chunks": debug_chunks[:5],  # only top 5 for UI
+        "top_score": top_score,
+        "verdict": verdict,
+        "retrieval_ms": retrieval_ms,
+        "llm_ms": llm_ms,
+        "model": MODEL,
+        "embed_model": EMBED_MODEL,
+        "search_mode": "hybrid",
+        "vector_weight": VECTOR_WEIGHT,
+        "bm25_weight": BM25_WEIGHT,
+        "mode": "N/A"
+    }
+
 @app.post("/chat")
 def chat(req: ChatRequest, debug: bool = Query(default=False)):
     context, debug_chunks, retrieval_ms = retrieve_context(req.message)
-
     top_score = debug_chunks[0]["combined_score"] if debug_chunks else 0
-    top_preview = debug_chunks[0]["preview"] if debug_chunks else ""
+    show_debug = debug or DEBUG_MODE
 
+    # --- Below threshold → skip LLM ---
     if top_score < LOW_CONFIDENCE:
         reply = (
             "Ich konnte leider keine passende Antwort in meiner FAQ finden. 😕\n"
-            "Bitte wende dich an:\n"
-            "• Das Prüfungsamt: pruefungsamt@fau.de\n"
-            "• Die Fachschaft WiSo\n"
-            "• Den StudOn-Kurs deines Studiengangs"
+            "Versuche es mit einer anderen Formulierung oder einem anderen Stichwort, "
+            "oder schau direkt in den Quellen nach."
         )
         result = {"reply": reply}
-        if debug or DEBUG_MODE:
-            result["debug"] = {
-                "retrieved_chunks": debug_chunks,
-                "top_score": top_score,
-                "verdict": "below threshold - LLM skipped",
-                "retrieval_ms": retrieval_ms,
-                "llm_ms": 0,
-                "model": MODEL,
-                "embed_model": EMBED_MODEL,
-                "search_mode": "hybrid",
-                "vector_weight": VECTOR_WEIGHT,
-                "bm25_weight": BM25_WEIGHT
-            }
+        if show_debug:
+            result["debug"] = build_debug(debug_chunks, top_score, "below threshold - LLM skipped", retrieval_ms)
+            result["debug"]["mode"] = "REJECT"
         return result
 
-    clarification_note = ""
-
-   
-    mode = "ANSWER"
-
-    if top_score < LOW_CONFIDENCE:
-        mode = "ASK_CLARIFY"
-    elif top_score < HIGH_CONFIDENCE:
+    # --- Determine mode ---
+    if top_score >= HIGH_CONFIDENCE:
+        mode = "ANSWER"
+    else:
         mode = "ANSWER_WITH_CAUTION"
-        clarification_note = "Unsicherheit: Die passende FAQ könnte eine andere sein. Kurze Rückfrage: ..."
 
-# prompt bekommt mode + note
-# reply = model_output (ohne note dranzuhängen)
-
+    # --- Build prompt ---
     system_prompt = f"""Du bist der WiSo-Chatbot der FAU Erlangen-Nürnberg. Du hilfst Erstsemester-Studierenden, sich im Studium zurechtzufinden.
 
     MODUS: {mode}
 
     MODUS-REGELN:
-    - ASK_CLARIFY: Gib KEINE inhaltliche Antwort. Stelle genau 1 Rückfrage.
     - ANSWER_WITH_CAUTION: Antworte kurz und füge eine Rückfrage hinzu, ob das die richtige Frage war.
     - ANSWER: Antworte kurz und hilfreich.
 
     DEIN WICHTIGSTES ZIEL:
-    Hilf Studierenden, die Info SELBST zu finden. Nenne immer die konkrete Quelle oder Anlaufstelle, damit sie beim nächsten Mal wissen, wo sie nachschauen müssen.
+    Hilf Studierenden, die Info SELBST zu finden. Nenne immer die konkrete Quelle oder Anlaufstelle (z.B. "Homepage des Prüfungsamtes", "Campo", "StudOn", "MHB", "RRZE Website"). Nenne NIEMALS Chunk-IDs.
 
     ANTWORT-REGELN:
     - Antworte NUR mit Informationen aus den QUELLEN unten.
-    - Wenn die Quellen keine Antwort enthalten: sage das ehrlich und verweise auf Prüfungsamt, Fachschaft oder StudOn.
-    - Erfinde NICHTS dazu.
+    - Wenn die QUELLEN keine Antwort auf die Frage enthalten, sage IMMER: "Ich kann dir nur bei Fragen rund ums Studium an der WiSo helfen 😊"
+    - Das gilt auch für Witze, Smalltalk, persönliche Fragen, oder alles was nicht direkt mit dem WiSo-Studium zu tun hat.
+    - Erfinde NICHTS dazu. Keine eigenen Informationen, keine Vermutungen.
     - Antworte auf Deutsch, kurz und freundlich (du-Form).
-    - Wenn die Frage nichts mit dem Studium zu tun hat: "Ich kann dir nur bei Fragen rund ums Studium an der WiSo helfen 😊"
-    - Gibt nicht die Chunk nummer oder den ID zurück, sondern immer die konkrete Quelle, z.B. "Homepage des Prüfungsamtes", "Campo", "StudOn", "MHB", "RRZE Website".
 
     FORMAT:
     1) Kurze Antwort (2-3 Sätze max)
-    2) 📍 Wo du das findest: [konkrete Quelle aus der FAQ, z.B. "Homepage des Prüfungsamtes", "Campo", "StudOn", "MHB", "RRZE Website"]
+    2) 📍 Wo du das findest: [konkrete Quelle]
 
     Beispiel:
     Frage: "Wie melde ich mich für Prüfungen an?"
@@ -264,6 +262,7 @@ def chat(req: ChatRequest, debug: bool = Query(default=False)):
     QUELLEN:
     {context}""".strip()
 
+    # --- Call LLM ---
     llm_start = time.time()
     body = {
         "model": MODEL,
@@ -280,19 +279,12 @@ def chat(req: ChatRequest, debug: bool = Query(default=False)):
     reply = data["message"]["content"]
 
     result = {"reply": reply}
-
-    if debug or DEBUG_MODE:
-        result["debug"] = {
-            "retrieved_chunks": debug_chunks,
-            "top_score": top_score,
-            "verdict": "high confidence" if top_score >= HIGH_CONFIDENCE else "borderline",
-            "retrieval_ms": retrieval_ms,
-            "llm_ms": llm_ms,
-            "model": MODEL,
-            "embed_model": EMBED_MODEL,
-            "search_mode": "hybrid",
-            "vector_weight": VECTOR_WEIGHT,
-            "bm25_weight": BM25_WEIGHT
-        }
+    if show_debug:
+        result["debug"] = build_debug(
+            debug_chunks, top_score,
+            "high confidence" if top_score >= HIGH_CONFIDENCE else "borderline",
+            retrieval_ms, llm_ms
+        )
+        result["debug"]["mode"] = mode
 
     return result
