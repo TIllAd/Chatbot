@@ -6,5 +6,5 @@ ollama
 rank-bm25
 python-docx
 pydantic
-
-
+oauthlib
+python-multipart
