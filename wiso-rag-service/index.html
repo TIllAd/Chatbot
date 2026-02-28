@@ -15,6 +15,10 @@
     .me { align-self: flex-end; background: #eef5ff; border-color: #d7e7ff; }
     .bot { align-self: flex-start; background: #f7f7f7; }
     .muted { color:#666; font-size: 0.9rem; }
+    .header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .header-row h1 { margin: 0; }
+    .inspector-link { font-size: 0.8rem; color: #888; text-decoration: none; padding: 4px 10px; border: 1px solid #ddd; border-radius: 8px; transition: all 0.15s; }
+    .inspector-link:hover { color: #f59e0b; border-color: #f59e0b; }
     .debug-panel { font-size: 0.8rem; background: #1e1e1e; color: #d4d4d4; border-radius: 8px; padding: 10px; margin-top: 4px; align-self: flex-start; width: 100%; box-sizing: border-box; }
     .debug-chunk { margin-bottom: 8px; border-bottom: 1px solid #444; padding-bottom: 8px; }
     .debug-chunk:last-child { border-bottom: none; margin-bottom: 0; }
@@ -29,8 +33,10 @@
 </head>
 
 <body>
-  <h1>WiSo Chatbot <span id="debug-indicator" style="display:none" class="debug-badge">🔍 DEBUG</span></h1>
-  <p class="muted">MVP UI – aktuell Echo, später LTI 1.3 + RAG.</p>
+  <div class="header-row">
+    <h1>WiSo Chatbot <span id="debug-indicator" style="display:none" class="debug-badge">🔍 DEBUG</span></h1>
+    <a href="/inspector" class="inspector-link" target="_blank">🔬 Inspector</a>
+  </div>
 
   <div class="card">
     <div class="row">
@@ -67,19 +73,14 @@
       chat.scrollTop = chat.scrollHeight;
     }
 
-     function addDebugPanel(debugData) {
+    function addDebugPanel(debugData) {
       const panel = document.createElement('div');
       panel.className = 'debug-panel';
 
       let html = `<strong>🔍 Retrieved Chunks</strong>`;
-      html += `<span class="timing">`;
-      html += `⏱ Retrieval: ${debugData.retrieval_ms}ms | LLM: ${debugData.llm_ms}ms | Modell: ${debugData.model}`;
-      html += `</span>`;
-      html += `<span class="timing">`;
-      html += `🎯 Top Score: ${debugData.top_score} | Mode: ${debugData.mode} | Verdict: ${debugData.verdict}`;
-      html += `</span>`;
-      html += `<span class="timing">`;
-      html += `⚙️ Vec: ${(debugData.vector_weight ?? 0).toFixed(2)} | BM25: ${(debugData.bm25_weight ?? 0).toFixed(2)} | Search: ${debugData.search_mode}`;      html += `</span>`;
+      html += `<span class="timing">⏱ Retrieval: ${debugData.retrieval_ms}ms | LLM: ${debugData.llm_ms}ms | Modell: ${debugData.model}</span>`;
+      html += `<span class="timing">🎯 Top Score: ${debugData.top_score} | Mode: ${debugData.mode} | Verdict: ${debugData.verdict}</span>`;
+      html += `<span class="timing">⚙️ Vec: ${(debugData.vector_weight ?? 0).toFixed(2)} | BM25: ${(debugData.bm25_weight ?? 0).toFixed(2)} | Search: ${debugData.search_mode}</span>`;
 
       debugData.retrieved_chunks.forEach(chunk => {
         html += `<div class="debug-chunk">`;
