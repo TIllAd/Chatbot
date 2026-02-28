@@ -29,8 +29,7 @@ HIGH_CONFIDENCE = 0.9
 LOW_CONFIDENCE = 0.65
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
-collection = chroma_client.get_collection("faq")
-
+collection = chromadb.Client().get_or_create_collection("faq")
 # --- BM25 Index Setup ---
 GERMAN_STOPWORDS = {        # we dont want to overvalue finding filler words to confuse the retrieval
     "ich", "du", "er", "sie", "es", "wir", "ihr", "mein", "dein", "sein",
@@ -73,8 +72,11 @@ def build_bm25_index():
     bm25 = BM25Okapi(tokenized)
     return bm25, doc_ids, doc_texts, doc_originals
 
-bm25_index, all_ids, all_texts, all_originals = build_bm25_index()
-
+try:
+    bm25_index, all_ids, all_texts, all_originals = build_bm25_index()
+except Exception as e:
+    print("BM25 build failed:", e)
+    bm25_index, all_ids, all_texts, all_originals = None, [], [], []
 print(f"BM25 index built with {len(all_ids)} chunks")
 
 class ChatRequest(BaseModel):
