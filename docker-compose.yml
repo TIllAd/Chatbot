@@ -1,0 +1,46 @@
+services:
+  # --- Your FastAPI RAG service ---
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./chroma_db:/app/chroma_db
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - VECTOR_WEIGHT=0.7
+      - CANDIDATE_POOL=20
+      - DEBUG_MODE=false
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  # --- Ollama LLM server ---
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    # Uncomment below for GPU support (NVIDIA):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # --- Cloudflare Tunnel ---
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

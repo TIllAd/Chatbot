@@ -4,8 +4,12 @@ import chromadb
 import ollama
 import time
 import requests
+import os
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
+
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_URL = OLLAMA_HOST + "/api/chat"
+ollama_client = ollama.Client(host=OLLAMA_HOST)
 MODEL = "llama3.1"
 EMBED_MODEL = "nomic-embed-text"
 
@@ -110,7 +114,7 @@ def embed_and_store(chunks):
         enriched = f"{chunk}\nTags: {keywords}" if keywords else chunk
 
         # Embed the enriched text
-        response = ollama.embeddings(model=EMBED_MODEL, prompt=enriched)
+        response = ollama_client.embeddings(model=EMBED_MODEL, prompt=enriched)
         embedding = response["embedding"]
         
         # Store with original text in metadata, enriched text as document
