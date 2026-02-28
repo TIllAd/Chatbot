@@ -1,103 +1,125 @@
-from docx import Document
-import re
-import chromadb
-import ollama
-import time
-import requests
+"""
+FAQ Ingestion Script — WiSo Chatbot
+Reads faq.docx, chunks by question/answer pairs (using --> delimiter),
+enriches with LLM-generated keywords, embeds with OpenAI, stores in ChromaDB.
+"""
+
 import os
+import re
+import time
+import chromadb
+from docx import Document
+from openai import OpenAI
 
+# --- Config ---
+EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+KEYWORD_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_URL = OLLAMA_HOST + "/api/chat"
-ollama_client = ollama.Client(host=OLLAMA_HOST)
-MODEL = "llama3.1"
-EMBED_MODEL = "nomic-embed-text"
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
-def load_chunks(filepath):
-    doc = Document(filepath)
+# --- Chunking ---
+def load_and_chunk(path="faq.docx"):
+    """
+    Parse faq.docx into question/answer chunks.
+    Format: question line(s) followed by --> answer line(s).
+    Each chunk = "question --> answer(s)"
+    """
+    doc = Document(path)
+    full_text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+
+    # Skip header lines (Fragensammlung, Beispiel, etc.)
+    lines = full_text.split("\n")
+
     chunks = []
-    current_chunk = []
+    current_question = None
+    current_answers = []
 
-    for para in doc.paragraphs:
-        text = para.text.strip()
-        if not text:
+    for line in lines:
+        line = line.strip()
+        if not line:
             continue
 
-        if text in ["Fragensammlung", "Beispiel:"]:
-            continue
+        if line.startswith("-->"):
+            # This is an answer line
+            answer = line.lstrip("->").strip()
+            if answer:
+                current_answers.append(answer)
+        elif "?" in line or line.endswith(":"):
+            # New question — save previous chunk first
+            if current_question and current_answers:
+                chunk_text = f"{current_question}\n--> " + "\n--> ".join(current_answers)
+                chunks.append(chunk_text)
 
-        is_new_question = re.match(r'^\d+[\.\)]\s?', text) or (
-            text.endswith("?") and not text.startswith("-->") and not text.startswith("-")
-        )
-
-        if is_new_question:
-            if current_chunk:
-                chunks.append("\n".join(current_chunk))
-            current_chunk = [text]
+            current_question = line
+            current_answers = []
         else:
-            if current_chunk:
-                current_chunk.append(text)
+            # Could be a continuation or header — skip headers
+            if line in ("Fragensammlung", "Beispiel:", "Mögliche Frage",
+                        "Mögliche Antwort", "Frage 1", "Frage 2", "Antwort"):
+                continue
+            # If we have a question context, treat as continuation of answer
+            if current_question and current_answers:
+                current_answers.append(line)
+            elif current_question:
+                # Might be a multi-line question
+                current_question += " " + line
 
-    if current_chunk:
-        chunks.append("\n".join(current_chunk))
+    # Don't forget the last chunk
+    if current_question and current_answers:
+        chunk_text = f"{current_question}\n--> " + "\n--> ".join(current_answers)
+        chunks.append(chunk_text)
 
     return chunks
 
-# Replace the generate_keywords function in ingest.py with this:
+# --- Keyword enrichment ---
+def generate_keywords(chunk_text: str) -> str:
+    prompt = f"""Analysiere diese FAQ-Antwort für Studierende und erstelle 3-5 deutsche Suchbegriffe/Synonyme,
+die Studierende wahrscheinlich eingeben würden, um diese Information zu finden.
 
-def generate_keywords(chunk: str) -> str:
-    """Use LLM to generate search keywords/synonyms for a chunk."""
-    prompt = f"""Aufgabe: Gib exakt 5 einzelne deutsche Suchbegriffe aus, die ein Student tippen würde um diesen FAQ-Eintrag zu finden.
+FAQ-Text:
+{chunk_text}
 
-Regeln:
-- Exakt 5 Begriffe, kommagetrennt
-- Nur einzelne Wörter oder kurze Begriffe (max 2 Wörter)
-- Umgangssprachlich, wie Studenten suchen würden
-- KEINE Sätze, KEINE Nummerierung, KEINE Erklärungen
-- NUR die Begriffe, sonst nichts
-
-FAQ-Eintrag:
-{chunk}
-
-Begriffe:"""
-
-    body = {
-        "model": MODEL,
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
-        "stream": False
-    }
+Antworte NUR mit den Suchbegriffen, kommagetrennt. Keine Erklärung."""
 
     try:
-        response = requests.post(OLLAMA_URL, json=body)
-        data = response.json()
-        raw = data["message"]["content"].strip()
-        
-        # Clean up: take only the first line, remove numbering/bullets
-        first_line = raw.split('\n')[0].strip()
-        # Remove any numbering like "1." or "- "
-        cleaned = re.sub(r'^\d+[\.\)]\s*', '', first_line)
-        cleaned = re.sub(r'^[-•]\s*', '', cleaned)
-        
-        # Split by comma, clean each keyword, take max 5
-        keywords = [k.strip().strip('.').strip() for k in cleaned.split(',')]
-        keywords = [k for k in keywords if k and len(k) < 30][:5]
-        
-        return ', '.join(keywords)
+        response = openai_client.chat.completions.create(
+            model=KEYWORD_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=100,
+            temperature=0.3
+        )
+        keywords = response.choices[0].message.content.strip()
+        return keywords
     except Exception as e:
-        print(f"  ⚠️  Keyword generation failed: {e}")
+        print(f"  Keyword generation failed: {e}")
         return ""
 
-def embed_and_store(chunks):
-    client = chromadb.PersistentClient(path="./chroma_db")
-    
+# --- Embedding ---
+def get_embedding(text: str) -> list[float]:
+    response = openai_client.embeddings.create(model=EMBED_MODEL, input=text)
+    return response.data[0].embedding
+
+# --- Main ---
+def ingest():
+    chunks = load_and_chunk()
+    print(f"Loaded {len(chunks)} chunks from faq.docx\n")
+
+    if len(chunks) == 0:
+        print("ERROR: No chunks found! Check faq.docx format.")
+        return
+
+    # Preview first 3 chunks
+    for i, c in enumerate(chunks[:3]):
+        print(f"  Preview chunk {i}: {c[:100]}...")
+    print()
+
+    # Reset collection
     try:
-        client.delete_collection("faq")
+        chroma_client.delete_collection("faq")
     except:
         pass
-    
-    collection = client.create_collection(
+    collection = chroma_client.create_collection(
         "faq",
         metadata={"hnsw:space": "cosine"}
     )
@@ -105,34 +127,38 @@ def embed_and_store(chunks):
     total_start = time.time()
 
     for i, chunk in enumerate(chunks):
+        start = time.time()
+
         # Generate keywords
         print(f"[{i+1}/{len(chunks)}] Generating keywords...", end=" ")
         keywords = generate_keywords(chunk)
         print(f"→ {keywords[:80]}{'...' if len(keywords) > 80 else ''}")
 
-        # Create enriched version for embedding/search
-        enriched = f"{chunk}\nTags: {keywords}" if keywords else chunk
+        # Build enriched text
+        enriched = f"[TAGS: {keywords}]\n{chunk}" if keywords else chunk
 
-        # Embed the enriched text
-        response = ollama_client.embeddings(model=EMBED_MODEL, prompt=enriched)
-        embedding = response["embedding"]
-        
-        # Store with original text in metadata, enriched text as document
+        # Embed
+        embedding = get_embedding(enriched)
+
+        # Store
         collection.add(
             ids=[f"chunk_{i}"],
-            embeddings=[embedding],
             documents=[enriched],
+            embeddings=[embedding],
             metadatas=[{
                 "original_text": chunk,
-                "keywords": keywords
+                "keywords": keywords,
+                "chunk_index": i
             }]
         )
 
-    elapsed = time.time() - total_start
-    print(f"\nDone! {len(chunks)} chunks stored in {elapsed:.1f}s")
-    print(f"Average: {elapsed/len(chunks):.1f}s per chunk")
+        elapsed = time.time() - start
+        if elapsed < 0.2:
+            time.sleep(0.2 - elapsed)
+
+    total = time.time() - total_start
+    print(f"\nDone! {len(chunks)} chunks stored in {total:.1f}s")
+    print(f"Average: {total/len(chunks):.1f}s per chunk")
 
 if __name__ == "__main__":
-    chunks = load_chunks("faq.docx")
-    print(f"Loaded {len(chunks)} chunks from faq.docx\n")
-    embed_and_store(chunks)
+    ingest()
