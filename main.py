@@ -1,6 +1,4 @@
-from multiprocessing import context
-
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from pydantic import BaseModel
 import requests
 import chromadb
@@ -10,15 +8,30 @@ import time
 import re
 from rank_bm25 import BM25Okapi
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
+from oauthlib.oauth1 import SignatureOnlyEndpoint, RequestValidator
+from urllib.parse import urlencode
+
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
+@app.get("/")
+def serve_ui():
+    return FileResponse("index.html")
+
+@app.get("/lti/launch")
+def lti_launch_get():
+    return FileResponse("index.html")
+
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_URL = OLLAMA_HOST + "/api/chat"
 MODEL = "llama3.1"
 EMBED_MODEL = "nomic-embed-text"
 DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
+ollama_client = ollama.Client(host=OLLAMA_HOST)
 # Hybrid search config
 VECTOR_WEIGHT = float(os.getenv("VECTOR_WEIGHT", "0.7"))
 BM25_WEIGHT = 1 - VECTOR_WEIGHT
@@ -30,6 +43,8 @@ LOW_CONFIDENCE = 0.65
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_collection("faq")
+
+
 
 # --- BM25 Index Setup ---
 GERMAN_STOPWORDS = {        # we dont want to overvalue finding filler words to confuse the retrieval
@@ -49,6 +64,52 @@ GERMAN_STOPWORDS = {        # we dont want to overvalue finding filler words to 
     "warum", "welche", "welcher", "welches", "ob", "immer", "wieder",
     "gibt", "gibt", "sollte", "sollten", "würde", "würden", "könnte",
 }
+
+
+# LTI 1.1 Config
+LTI_CONSUMER_KEY = os.getenv("LTI_CONSUMER_KEY", "wiso-chatbot")
+LTI_SHARED_SECRET = os.getenv("LTI_SHARED_SECRET", "change-me-secret")
+
+class LTIRequestValidator(RequestValidator):
+    @property
+    def client_key_length(self):
+        return (3, 50)
+    
+    @property
+    def nonce_length(self):
+        return (20, 50)
+    
+    def validate_client_key(self, client_key, request):
+        return client_key == LTI_CONSUMER_KEY
+    
+    def get_client_secret(self, client_key, request):
+        return LTI_SHARED_SECRET
+    
+    def validate_timestamp_and_nonce(self, client_key, timestamp, nonce, 
+                                      request_token=None, access_token=None, request=None):
+        return True  # For simplicity; production should check for replay attacks
+    
+lti_validator = LTIRequestValidator()
+lti_endpoint = SignatureOnlyEndpoint(lti_validator)
+
+
+@app.post("/lti/launch")
+async def lti_launch(request: Request):
+    form = await request.form()
+    body = dict(form)
+    
+    # Check consumer key matches
+    if body.get("oauth_consumer_key") != LTI_CONSUMER_KEY:
+        return HTMLResponse("<h1>LTI Authentication Failed</h1>", status_code=403)
+    
+    # Extract user info
+    user_name = body.get("lis_person_name_full", body.get("lis_person_name_given", "Student"))
+    user_role = body.get("roles", "Student")
+    
+    # Serve the chatbot UI
+    return FileResponse("index.html")
+
+
 
 def tokenize(text: str) -> list[str]:
     """German-friendly tokenizer with stopword removal."""
@@ -73,8 +134,11 @@ def build_bm25_index():
     bm25 = BM25Okapi(tokenized)
     return bm25, doc_ids, doc_texts, doc_originals
 
-bm25_index, all_ids, all_texts, all_originals = build_bm25_index()
-
+try:
+    bm25_index, all_ids, all_texts, all_originals = build_bm25_index()
+except Exception as e:
+    print("BM25 build failed:", e)
+    bm25_index, all_ids, all_texts, all_originals = None, [], [], []
 print(f"BM25 index built with {len(all_ids)} chunks")
 
 class ChatRequest(BaseModel):
@@ -84,7 +148,7 @@ def retrieve_context(question: str, n_results: int = 25):
     start = time.time()
 
     # --- Vector search (get larger candidate pool) ---
-    response = ollama.embeddings(model=EMBED_MODEL, prompt=question)
+    response = ollama_client.embeddings(model=EMBED_MODEL, prompt=question)
     embedding = response["embedding"]
 
     vector_results = collection.query(
