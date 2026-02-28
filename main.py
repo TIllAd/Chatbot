@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from pydantic import BaseModel
 import requests
 import chromadb
@@ -8,9 +8,22 @@ import time
 import re
 from rank_bm25 import BM25Okapi
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
+from oauthlib.oauth1 import SignatureOnlyEndpoint, RequestValidator
+from urllib.parse import urlencode
+
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+@app.get("/")
+def serve_ui():
+    return FileResponse("index.html")
+
+@app.get("/lti/launch")
+def lti_launch_get():
+    return FileResponse("index.html")
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_URL = OLLAMA_HOST + "/api/chat"
@@ -29,7 +42,10 @@ HIGH_CONFIDENCE = 0.9
 LOW_CONFIDENCE = 0.65
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
-collection = chromadb.Client().get_or_create_collection("faq")
+collection = chroma_client.get_collection("faq")
+
+
+
 # --- BM25 Index Setup ---
 GERMAN_STOPWORDS = {        # we dont want to overvalue finding filler words to confuse the retrieval
     "ich", "du", "er", "sie", "es", "wir", "ihr", "mein", "dein", "sein",
@@ -48,6 +64,52 @@ GERMAN_STOPWORDS = {        # we dont want to overvalue finding filler words to 
     "warum", "welche", "welcher", "welches", "ob", "immer", "wieder",
     "gibt", "gibt", "sollte", "sollten", "würde", "würden", "könnte",
 }
+
+
+# LTI 1.1 Config
+LTI_CONSUMER_KEY = os.getenv("LTI_CONSUMER_KEY", "wiso-chatbot")
+LTI_SHARED_SECRET = os.getenv("LTI_SHARED_SECRET", "change-me-secret")
+
+class LTIRequestValidator(RequestValidator):
+    @property
+    def client_key_length(self):
+        return (3, 50)
+    
+    @property
+    def nonce_length(self):
+        return (20, 50)
+    
+    def validate_client_key(self, client_key, request):
+        return client_key == LTI_CONSUMER_KEY
+    
+    def get_client_secret(self, client_key, request):
+        return LTI_SHARED_SECRET
+    
+    def validate_timestamp_and_nonce(self, client_key, timestamp, nonce, 
+                                      request_token=None, access_token=None, request=None):
+        return True  # For simplicity; production should check for replay attacks
+    
+lti_validator = LTIRequestValidator()
+lti_endpoint = SignatureOnlyEndpoint(lti_validator)
+
+
+@app.post("/lti/launch")
+async def lti_launch(request: Request):
+    form = await request.form()
+    body = dict(form)
+    
+    # Check consumer key matches
+    if body.get("oauth_consumer_key") != LTI_CONSUMER_KEY:
+        return HTMLResponse("<h1>LTI Authentication Failed</h1>", status_code=403)
+    
+    # Extract user info
+    user_name = body.get("lis_person_name_full", body.get("lis_person_name_given", "Student"))
+    user_role = body.get("roles", "Student")
+    
+    # Serve the chatbot UI
+    return FileResponse("index.html")
+
+
 
 def tokenize(text: str) -> list[str]:
     """German-friendly tokenizer with stopword removal."""
