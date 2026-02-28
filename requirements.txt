@@ -1,10 +1,9 @@
 fastapi
-uvicorn
-requests
+uvicorn[standard]
 chromadb
-ollama
-rank-bm25
 python-docx
-pydantic
-oauthlib
+requests
+rank-bm25
 python-multipart
+oauthlib
+openai
