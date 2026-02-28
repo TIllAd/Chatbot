@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+requests
+chromadb
+ollama
+rank-bm25
+python-docx
+pydantic
+
+

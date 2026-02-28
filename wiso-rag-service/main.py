@@ -1,5 +1,3 @@
-from multiprocessing import context
-
 from fastapi import FastAPI, Query
 from pydantic import BaseModel
 import requests
@@ -14,11 +12,13 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_URL = OLLAMA_HOST + "/api/chat"
 MODEL = "llama3.1"
 EMBED_MODEL = "nomic-embed-text"
 DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
+ollama_client = ollama.Client(host=OLLAMA_HOST)
 # Hybrid search config
 VECTOR_WEIGHT = float(os.getenv("VECTOR_WEIGHT", "0.7"))
 BM25_WEIGHT = 1 - VECTOR_WEIGHT
@@ -84,7 +84,7 @@ def retrieve_context(question: str, n_results: int = 25):
     start = time.time()
 
     # --- Vector search (get larger candidate pool) ---
-    response = ollama.embeddings(model=EMBED_MODEL, prompt=question)
+    response = ollama_client.embeddings(model=EMBED_MODEL, prompt=question)
     embedding = response["embedding"]
 
     vector_results = collection.query(
