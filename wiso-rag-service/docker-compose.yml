@@ -1,38 +1,23 @@
 services:
-  # --- Your FastAPI RAG service ---
   app:
     build: .
     ports:
       - "8000:8000"
-    volumes:
-      - ./chroma_db:/app/chroma_db
     environment:
-      - OLLAMA_HOST=http://ollama:11434
-      - VECTOR_WEIGHT=0.7
-      - CANDIDATE_POOL=20
-      - DEBUG_MODE=false
-    depends_on:
-      - ollama
-    restart: unless-stopped
-
-  # --- Ollama LLM server ---
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - OPENAI_EMBED_MODEL=${OPENAI_EMBED_MODEL:-text-embedding-3-small}
+      - VECTOR_WEIGHT=${VECTOR_WEIGHT:-0.7}
+      - CANDIDATE_POOL=${CANDIDATE_POOL:-20}
+      - LOW_CONFIDENCE=${LOW_CONFIDENCE:-0.65}
+      - HIGH_CONFIDENCE=${HIGH_CONFIDENCE:-0.9}
+      - DEBUG_MODE=${DEBUG_MODE:-false}
+      - LTI_CONSUMER_KEY=${LTI_CONSUMER_KEY:-wiso-chatbot}
+      - LTI_SHARED_SECRET=${LTI_SHARED_SECRET:-change-me-secret}
     volumes:
-      - ollama_data:/root/.ollama
+      - chroma_data:/app/chroma_db
     restart: unless-stopped
-    # Uncomment below for GPU support (NVIDIA):
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
 
-  # --- Cloudflare Tunnel ---
   tunnel:
     image: cloudflare/cloudflared:latest
     command: tunnel --no-autoupdate run
@@ -43,4 +28,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  ollama_data:
+  chroma_data:
