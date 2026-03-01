@@ -54,5 +54,8 @@ wiso-rag-service/chroma_db/
 
 # Eval results (regenerated on each run)
 eval_results/
-## Information Docs ###
+
+
+## Data inpput ###
 *.docx
+*.pdf
