@@ -14,8 +14,10 @@ services:
       DEBUG_MODE: ${DEBUG_MODE:-false}
       LTI_CONSUMER_KEY: ${LTI_CONSUMER_KEY:-wiso-chatbot}
       LTI_SHARED_SECRET: ${LTI_SHARED_SECRET:-change-me-secret}
+      LOG_FILE: /app/logs/chat_log.jsonl
     volumes:
       - chroma_data:/app/chroma_db
+      - ./logs:/app/logs
     restart: unless-stopped
 
   tunnel:

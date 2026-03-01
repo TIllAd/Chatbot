@@ -4,6 +4,8 @@ import chromadb
 import os
 import time
 import re
+import json
+from datetime import datetime, timezone
 from rank_bm25 import BM25Okapi
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
@@ -25,8 +27,20 @@ BM25_WEIGHT = 1 - VECTOR_WEIGHT
 CANDIDATE_POOL = int(os.getenv("CANDIDATE_POOL", "20"))
 
 # --- Thresholds ---
-HIGH_CONFIDENCE = 0.9
-LOW_CONFIDENCE = 0.65
+HIGH_CONFIDENCE = 0.75
+LOW_CONFIDENCE = 0.55
+
+# --- Logging ---
+LOG_FILE = os.getenv("LOG_FILE", "./logs/chat_log.jsonl")
+os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+
+def log_interaction(entry: dict):
+    """Append a chat interaction to the JSONL log file."""
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"Logging failed: {e}")
 
 # --- ChromaDB ---
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
@@ -36,6 +50,10 @@ collection = chroma_client.get_collection("faq")
 @app.get("/")
 def serve_ui():
     return FileResponse("index.html")
+
+@app.get("/inspector")
+def serve_inspector():
+    return FileResponse("inspector.html")
 
 @app.get("/lti/launch")
 def lti_launch_get():
@@ -126,10 +144,6 @@ except Exception as e:
     bm25_index, all_ids, all_texts, all_originals = None, [], [], []
 print(f"BM25 index built with {len(all_ids)} chunks")
 
-@app.get("/inspector")
-def serve_inspector():
-    return FileResponse("inspector.html")
-
 # --- Retrieval ---
 class ChatRequest(BaseModel):
     message: str
@@ -209,6 +223,8 @@ def inspect_chunks():
             "id": all_docs["ids"][i],
             "text": all_docs["metadatas"][i].get("original_text", all_docs["documents"][i]),
             "keywords": all_docs["metadatas"][i].get("keywords", ""),
+            "source_file": all_docs["metadatas"][i].get("source_file", ""),
+            "section": all_docs["metadatas"][i].get("section", ""),
             "enriched": all_docs["documents"][i]
         }
         for i in range(len(all_docs["ids"]))
@@ -225,6 +241,84 @@ def inspect_search(req: InspectSearchRequest):
         idx = all_ids.index(chunk["id"])
         chunk["document"] = all_texts[idx]
     return {"results": debug_chunks, "elapsed_ms": elapsed, "query": req.query}
+
+# --- Logs endpoint ---
+@app.get("/logs")
+def get_logs(limit: int = Query(default=100), mode: str = Query(default=None)):
+    """Retrieve anonymous chat logs for analysis."""
+    try:
+        if not os.path.exists(LOG_FILE):
+            return {"logs": [], "total": 0}
+
+        logs = []
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    logs.append(json.loads(line))
+
+        # Optional filter by mode
+        if mode:
+            logs = [l for l in logs if l.get("mode") == mode]
+
+        total = len(logs)
+
+        # Return most recent first, limited
+        logs = list(reversed(logs))[:limit]
+
+        return {"logs": logs, "total": total}
+    except Exception as e:
+        return {"error": str(e)}
+
+# --- Analytics endpoint ---
+@app.get("/analytics")
+def serve_analytics():
+    return FileResponse("analytics.html")
+
+
+@app.get("/logs/stats")
+def get_log_stats():
+    """Get summary statistics of chat interactions."""
+    try:
+        if not os.path.exists(LOG_FILE):
+            return {"total": 0}
+
+        logs = []
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    logs.append(json.loads(line))
+
+        if not logs:
+            return {"total": 0}
+
+        modes = {}
+        scores = []
+        retrieval_times = []
+        llm_times = []
+
+        for log in logs:
+            m = log.get("mode", "unknown")
+            modes[m] = modes.get(m, 0) + 1
+            if log.get("top_score"):
+                scores.append(log["top_score"])
+            if log.get("retrieval_ms"):
+                retrieval_times.append(log["retrieval_ms"])
+            if log.get("llm_ms"):
+                llm_times.append(log["llm_ms"])
+
+        return {
+            "total": len(logs),
+            "modes": modes,
+            "avg_top_score": round(sum(scores) / len(scores), 4) if scores else 0,
+            "avg_retrieval_ms": round(sum(retrieval_times) / len(retrieval_times)) if retrieval_times else 0,
+            "avg_llm_ms": round(sum(llm_times) / len(llm_times)) if llm_times else 0,
+            "first_log": logs[0].get("timestamp"),
+            "last_log": logs[-1].get("timestamp"),
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 # --- Chat ---
 def build_debug(debug_chunks, top_score, verdict, retrieval_ms, llm_ms=0):
@@ -254,6 +348,19 @@ def chat(req: ChatRequest, debug: bool = Query(default=False)):
             "Versuche es mit einer anderen Formulierung oder einem anderen Stichwort, "
             "oder schau direkt in den Quellen nach."
         )
+
+        # Log rejected interaction
+        log_interaction({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "question": req.message,
+            "reply": reply,
+            "mode": "REJECT",
+            "top_score": top_score,
+            "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
+            "retrieval_ms": retrieval_ms,
+            "llm_ms": 0,
+        })
+
         result = {"reply": reply}
         if show_debug:
             result["debug"] = build_debug(debug_chunks, top_score, "below threshold - LLM skipped", retrieval_ms)
@@ -282,7 +389,7 @@ ANTWORT-REGELN:
 
 FORMAT:
 1) Kurze Antwort (2-3 Sätze max)
-2) 📍 Wo du das findest: [konkrete Quelle] zb in den Folien <"name">
+2) 📍 Wo du das findest: [konkrete Quelle]
 
 QUELLEN:
 {context}""".strip()
@@ -299,6 +406,18 @@ QUELLEN:
     )
     llm_ms = int((time.time() - llm_start) * 1000)
     reply = response.choices[0].message.content
+
+    # Log the interaction (anonymous — no user identity)
+    log_interaction({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "question": req.message,
+        "reply": reply,
+        "mode": mode,
+        "top_score": top_score,
+        "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
+        "retrieval_ms": retrieval_ms,
+        "llm_ms": llm_ms,
+    })
 
     result = {"reply": reply}
     if show_debug:
