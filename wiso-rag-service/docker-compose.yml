@@ -4,16 +4,16 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
-      - OPENAI_EMBED_MODEL=${OPENAI_EMBED_MODEL:-text-embedding-3-small}
-      - VECTOR_WEIGHT=${VECTOR_WEIGHT:-0.7}
-      - CANDIDATE_POOL=${CANDIDATE_POOL:-20}
-      - LOW_CONFIDENCE=${LOW_CONFIDENCE:-0.65}
-      - HIGH_CONFIDENCE=${HIGH_CONFIDENCE:-0.9}
-      - DEBUG_MODE=${DEBUG_MODE:-false}
-      - LTI_CONSUMER_KEY=${LTI_CONSUMER_KEY:-wiso-chatbot}
-      - LTI_SHARED_SECRET=${LTI_SHARED_SECRET:-change-me-secret}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_EMBED_MODEL: ${OPENAI_EMBED_MODEL:-text-embedding-3-small}
+      VECTOR_WEIGHT: ${VECTOR_WEIGHT:-0.7}
+      CANDIDATE_POOL: ${CANDIDATE_POOL:-20}
+      LOW_CONFIDENCE: ${LOW_CONFIDENCE:-0.65}
+      HIGH_CONFIDENCE: ${HIGH_CONFIDENCE:-0.9}
+      DEBUG_MODE: ${DEBUG_MODE:-false}
+      LTI_CONSUMER_KEY: ${LTI_CONSUMER_KEY:-wiso-chatbot}
+      LTI_SHARED_SECRET: ${LTI_SHARED_SECRET:-change-me-secret}
     volumes:
       - chroma_data:/app/chroma_db
     restart: unless-stopped
@@ -22,10 +22,23 @@ services:
     image: cloudflare/cloudflared:latest
     command: tunnel --no-autoupdate run
     environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
       - app
     restart: unless-stopped
+
+  ingest:
+    build: .
+    volumes:
+      - chroma_data:/app/chroma_db
+      - ./data:/app/data
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_EMBED_MODEL: ${OPENAI_EMBED_MODEL:-text-embedding-3-small}
+      DATA_DIR: /app/data
+    profiles:
+      - ingest
 
 volumes:
   chroma_data:

@@ -9,7 +9,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy app files
 COPY main.py .
 COPY ingest.py .
-COPY faq.docx .
 COPY index.html .
 COPY inspector.html .
 # Create chroma_db directory (will be mounted as volume)
