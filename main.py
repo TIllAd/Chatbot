@@ -8,7 +8,7 @@ import json
 from datetime import datetime, timezone
 from rank_bm25 import BM25Okapi
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from oauthlib.oauth1 import SignatureOnlyEndpoint, RequestValidator
 from openai import OpenAI
 
@@ -35,7 +35,6 @@ LOG_FILE = os.getenv("LOG_FILE", "./logs/chat_log.jsonl")
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 
 def log_interaction(entry: dict):
-    """Append a chat interaction to the JSONL log file."""
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -54,6 +53,10 @@ def serve_ui():
 @app.get("/inspector")
 def serve_inspector():
     return FileResponse("inspector.html")
+
+@app.get("/analytics")
+def serve_analytics():
+    return FileResponse("analytics.html")
 
 @app.get("/lti/launch")
 def lti_launch_get():
@@ -89,12 +92,8 @@ lti_endpoint = SignatureOnlyEndpoint(lti_validator)
 async def lti_launch(request: Request):
     form = await request.form()
     body = dict(form)
-
     if body.get("oauth_consumer_key") != LTI_CONSUMER_KEY:
         return HTMLResponse("<h1>LTI Authentication Failed</h1>", status_code=403)
-
-    user_name = body.get("lis_person_name_full", body.get("lis_person_name_given", "Student"))
-    user_role = body.get("roles", "Student")
     return FileResponse("index.html")
 
 # --- BM25 Index Setup ---
@@ -121,7 +120,6 @@ def tokenize(text: str) -> list[str]:
     return [w for w in words if w not in GERMAN_STOPWORDS]
 
 def get_embedding(text: str) -> list[float]:
-    """Get embedding from OpenAI."""
     response = openai_client.embeddings.create(model=EMBED_MODEL, input=text)
     return response.data[0].embedding
 
@@ -150,7 +148,6 @@ class ChatRequest(BaseModel):
 
 def retrieve_context(question: str, n_results: int = 25):
     start = time.time()
-
     embedding = get_embedding(question)
 
     vector_results = collection.query(
@@ -185,14 +182,9 @@ def retrieve_context(question: str, n_results: int = 25):
         b_score = bm25_scores.get(cid, 0)
         final = round(VECTOR_WEIGHT * v_score + BM25_WEIGHT * b_score, 4)
         idx = all_ids.index(cid)
-
         combined.append({
-            "id": cid,
-            "vector_score": v_score,
-            "bm25_score": b_score,
-            "combined_score": final,
-            "document": all_texts[idx],
-            "original": all_originals[idx]
+            "id": cid, "vector_score": v_score, "bm25_score": b_score,
+            "combined_score": final, "document": all_texts[idx], "original": all_originals[idx]
         })
 
     combined.sort(key=lambda x: x["combined_score"], reverse=True)
@@ -201,8 +193,7 @@ def retrieve_context(question: str, n_results: int = 25):
 
     debug_chunks = [
         {
-            "rank": i + 1,
-            "id": item["id"],
+            "rank": i + 1, "id": item["id"],
             "combined_score": item["combined_score"],
             "vector_score": item["vector_score"],
             "bm25_score": item["bm25_score"],
@@ -213,6 +204,45 @@ def retrieve_context(question: str, n_results: int = 25):
 
     context = "\n\n".join(f"[{item['id']}] {item['original']}" for item in top)
     return context, debug_chunks, elapsed
+
+# --- LLM refusal detection ---
+LLM_REJECT_PHRASES = [
+    "ich kann dir nur bei fragen rund ums studium",
+    "nur bei fragen rund ums studium an der wiso",
+    "kann dir nur bei fragen",
+]
+
+def detect_llm_reject(reply: str) -> bool:
+    """Check if the LLM refused to answer (off-topic detected by LLM itself)."""
+    lower = reply.lower()
+    return any(phrase in lower for phrase in LLM_REJECT_PHRASES)
+
+# --- System prompt builder ---
+def build_system_prompt(mode: str, context: str) -> str:
+    return f"""Du bist der WiSo-Chatbot der FAU Erlangen-Nürnberg. Du hilfst Erstsemester-Studierenden, sich im Studium zurechtzufinden.
+
+MODUS: {mode}
+
+MODUS-REGELN:
+- ANSWER_WITH_CAUTION: Antworte kurz und füge eine Rückfrage hinzu, ob das die richtige Frage war.
+- ANSWER: Antworte kurz und hilfreich.
+
+DEIN WICHTIGSTES ZIEL:
+Hilf Studierenden, die Info SELBST zu finden. Nenne immer die konkrete Quelle oder Anlaufstelle (z.B. "Homepage des Prüfungsamtes", "Campo", "StudOn", "MHB", "RRZE Website"). Nenne NIEMALS Chunk-IDs.
+
+ANTWORT-REGELN:
+- Antworte NUR mit Informationen aus den QUELLEN unten.
+- Wenn die QUELLEN keine Antwort auf die Frage enthalten, sage IMMER: "Ich kann dir nur bei Fragen rund ums Studium an der WiSo helfen 😊"
+- Das gilt auch für Witze, Smalltalk, persönliche Fragen, oder alles was nicht direkt mit dem WiSo-Studium zu tun hat.
+- Erfinde NICHTS dazu. Keine eigenen Informationen, keine Vermutungen.
+- Antworte auf Deutsch, kurz und freundlich (du-Form).
+
+FORMAT:
+1) Kurze Antwort (2-3 Sätze max)
+2) 📍 Wo du das findest: [konkrete Quelle]
+
+QUELLEN:
+{context}""".strip()
 
 # --- Inspect endpoints ---
 @app.get("/inspect/chunks")
@@ -242,62 +272,43 @@ def inspect_search(req: InspectSearchRequest):
         chunk["document"] = all_texts[idx]
     return {"results": debug_chunks, "elapsed_ms": elapsed, "query": req.query}
 
-# --- Logs endpoint ---
+# --- Logs endpoints ---
 @app.get("/logs")
 def get_logs(limit: int = Query(default=100), mode: str = Query(default=None)):
-    """Retrieve anonymous chat logs for analysis."""
     try:
         if not os.path.exists(LOG_FILE):
             return {"logs": [], "total": 0}
-
         logs = []
         with open(LOG_FILE, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:
                     logs.append(json.loads(line))
-
-        # Optional filter by mode
         if mode:
             logs = [l for l in logs if l.get("mode") == mode]
-
         total = len(logs)
-
-        # Return most recent first, limited
         logs = list(reversed(logs))[:limit]
-
         return {"logs": logs, "total": total}
     except Exception as e:
         return {"error": str(e)}
 
-# --- Analytics endpoint ---
-@app.get("/analytics")
-def serve_analytics():
-    return FileResponse("analytics.html")
-
-
 @app.get("/logs/stats")
 def get_log_stats():
-    """Get summary statistics of chat interactions."""
     try:
         if not os.path.exists(LOG_FILE):
             return {"total": 0}
-
         logs = []
         with open(LOG_FILE, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:
                     logs.append(json.loads(line))
-
         if not logs:
             return {"total": 0}
-
         modes = {}
         scores = []
         retrieval_times = []
         llm_times = []
-
         for log in logs:
             m = log.get("mode", "unknown")
             modes[m] = modes.get(m, 0) + 1
@@ -307,7 +318,6 @@ def get_log_stats():
                 retrieval_times.append(log["retrieval_ms"])
             if log.get("llm_ms"):
                 llm_times.append(log["llm_ms"])
-
         return {
             "total": len(logs),
             "modes": modes,
@@ -320,20 +330,15 @@ def get_log_stats():
     except Exception as e:
         return {"error": str(e)}
 
-# --- Chat ---
+# --- Chat (non-streaming, kept for eval/debug) ---
 def build_debug(debug_chunks, top_score, verdict, retrieval_ms, llm_ms=0):
     return {
         "retrieved_chunks": debug_chunks[:5],
-        "top_score": top_score,
-        "verdict": verdict,
-        "retrieval_ms": retrieval_ms,
-        "llm_ms": llm_ms,
-        "model": MODEL,
-        "embed_model": EMBED_MODEL,
-        "search_mode": "hybrid",
-        "vector_weight": VECTOR_WEIGHT,
-        "bm25_weight": BM25_WEIGHT,
-        "mode": "N/A"
+        "top_score": top_score, "verdict": verdict,
+        "retrieval_ms": retrieval_ms, "llm_ms": llm_ms,
+        "model": MODEL, "embed_model": EMBED_MODEL,
+        "search_mode": "hybrid", "vector_weight": VECTOR_WEIGHT,
+        "bm25_weight": BM25_WEIGHT, "mode": "N/A"
     }
 
 @app.post("/chat")
@@ -348,19 +353,13 @@ def chat(req: ChatRequest, debug: bool = Query(default=False)):
             "Versuche es mit einer anderen Formulierung oder einem anderen Stichwort, "
             "oder schau direkt in den Quellen nach."
         )
-
-        # Log rejected interaction
         log_interaction({
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "question": req.message,
-            "reply": reply,
-            "mode": "REJECT",
+            "question": req.message, "reply": reply, "mode": "REJECT",
             "top_score": top_score,
             "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
-            "retrieval_ms": retrieval_ms,
-            "llm_ms": 0,
+            "retrieval_ms": retrieval_ms, "llm_ms": 0,
         })
-
         result = {"reply": reply}
         if show_debug:
             result["debug"] = build_debug(debug_chunks, top_score, "below threshold - LLM skipped", retrieval_ms)
@@ -368,31 +367,7 @@ def chat(req: ChatRequest, debug: bool = Query(default=False)):
         return result
 
     mode = "ANSWER" if top_score >= HIGH_CONFIDENCE else "ANSWER_WITH_CAUTION"
-
-    system_prompt = f"""Du bist der WiSo-Chatbot der FAU Erlangen-Nürnberg. Du hilfst Erstsemester-Studierenden, sich im Studium zurechtzufinden.
-
-MODUS: {mode}
-
-MODUS-REGELN:
-- ANSWER_WITH_CAUTION: Antworte kurz und füge eine Rückfrage hinzu, ob das die richtige Frage war.
-- ANSWER: Antworte kurz und hilfreich.
-
-DEIN WICHTIGSTES ZIEL:
-Hilf Studierenden, die Info SELBST zu finden. Nenne immer die konkrete Quelle oder Anlaufstelle (z.B. "Homepage des Prüfungsamtes", "Campo", "StudOn", "MHB", "RRZE Website"). Nenne NIEMALS Chunk-IDs.
-
-ANTWORT-REGELN:
-- Antworte NUR mit Informationen aus den QUELLEN unten.
-- Wenn die QUELLEN keine Antwort auf die Frage enthalten, sage IMMER: "Ich kann dir nur bei Fragen rund ums Studium an der WiSo helfen 😊"
-- Das gilt auch für Witze, Smalltalk, persönliche Fragen, oder alles was nicht direkt mit dem WiSo-Studium zu tun hat.
-- Erfinde NICHTS dazu. Keine eigenen Informationen, keine Vermutungen.
-- Antworte auf Deutsch, kurz und freundlich (du-Form).
-
-FORMAT:
-1) Kurze Antwort (2-3 Sätze max)
-2) 📍 Wo du das findest: [konkrete Quelle]
-
-QUELLEN:
-{context}""".strip()
+    system_prompt = build_system_prompt(mode, context)
 
     llm_start = time.time()
     response = openai_client.chat.completions.create(
@@ -401,22 +376,20 @@ QUELLEN:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": req.message}
         ],
-        max_tokens=300,
-        temperature=0.3
+        max_tokens=300, temperature=0.3
     )
     llm_ms = int((time.time() - llm_start) * 1000)
     reply = response.choices[0].message.content
 
-    # Log the interaction (anonymous — no user identity)
+    # Detect if LLM refused (off-topic despite high retrieval score)
+    actual_mode = "LLM_REJECT" if detect_llm_reject(reply) else mode
+
     log_interaction({
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "question": req.message,
-        "reply": reply,
-        "mode": mode,
+        "question": req.message, "reply": reply, "mode": actual_mode,
         "top_score": top_score,
         "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
-        "retrieval_ms": retrieval_ms,
-        "llm_ms": llm_ms,
+        "retrieval_ms": retrieval_ms, "llm_ms": llm_ms,
     })
 
     result = {"reply": reply}
@@ -426,6 +399,82 @@ QUELLEN:
             "high confidence" if top_score >= HIGH_CONFIDENCE else "borderline",
             retrieval_ms, llm_ms
         )
-        result["debug"]["mode"] = mode
-
+        result["debug"]["mode"] = actual_mode
     return result
+
+# --- Streaming Chat (SSE) ---
+@app.post("/chat/stream")
+def chat_stream(req: ChatRequest):
+    context, debug_chunks, retrieval_ms = retrieve_context(req.message)
+    top_score = debug_chunks[0]["combined_score"] if debug_chunks else 0
+
+    def generate():
+        # Send retrieval metadata first
+        meta = {
+            "type": "meta",
+            "top_score": top_score,
+            "retrieval_ms": retrieval_ms,
+            "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
+        }
+        yield f"data: {json.dumps(meta)}\n\n"
+
+        # Below threshold → reject without calling LLM
+        if top_score < LOW_CONFIDENCE:
+            reply = (
+                "Ich konnte leider keine passende Antwort in meiner FAQ finden. 😕\n"
+                "Versuche es mit einer anderen Formulierung oder einem anderen Stichwort, "
+                "oder schau direkt in den Quellen nach."
+            )
+            yield f"data: {json.dumps({'type': 'token', 'content': reply})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'mode': 'REJECT'})}\n\n"
+
+            log_interaction({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "question": req.message, "reply": reply, "mode": "REJECT",
+                "top_score": top_score,
+                "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
+                "retrieval_ms": retrieval_ms, "llm_ms": 0,
+            })
+            return
+
+        mode = "ANSWER" if top_score >= HIGH_CONFIDENCE else "ANSWER_WITH_CAUTION"
+        system_prompt = build_system_prompt(mode, context)
+
+        # Stream from OpenAI
+        llm_start = time.time()
+        full_reply = ""
+
+        stream = openai_client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": req.message}
+            ],
+            max_tokens=300, temperature=0.3,
+            stream=True
+        )
+
+        for chunk in stream:
+            delta = chunk.choices[0].delta
+            if delta.content:
+                full_reply += delta.content
+                yield f"data: {json.dumps({'type': 'token', 'content': delta.content})}\n\n"
+
+        llm_ms = int((time.time() - llm_start) * 1000)
+
+        # Detect if LLM refused (off-topic despite high retrieval score)
+        actual_mode = "LLM_REJECT" if detect_llm_reject(full_reply) else mode
+
+        # Send done signal with timing
+        yield f"data: {json.dumps({'type': 'done', 'mode': actual_mode, 'llm_ms': llm_ms})}\n\n"
+
+        # Log the full interaction
+        log_interaction({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "question": req.message, "reply": full_reply, "mode": actual_mode,
+            "top_score": top_score,
+            "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
+            "retrieval_ms": retrieval_ms, "llm_ms": llm_ms,
+        })
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
