@@ -282,7 +282,7 @@ ANTWORT-REGELN:
 
 FORMAT:
 1) Kurze Antwort (2-3 Sätze max)
-2) 📍 Wo du das findest: [konkrete Quelle]
+2) 📍 Wo du das findest: [konkrete Quelle] zb in den Folien <"name">
 
 QUELLEN:
 {context}""".strip()
