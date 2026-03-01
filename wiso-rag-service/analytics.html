@@ -14,6 +14,7 @@
     --red: #dc2626; --red-light: #fee2e2;
     --blue: #2563eb; --blue-light: #dbeafe;
     --purple: #7c3aed; --purple-light: #ede9fe;
+    --purple: #7c3aed; --purple-light: #ede9fe;
     --radius: 16px;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -104,6 +105,7 @@
   .meta-mode.ANSWER { background: var(--green-light); color: var(--green); }
   .meta-mode.ANSWER_WITH_CAUTION { background: var(--accent-light); color: var(--accent-dark); }
   .meta-mode.REJECT { background: var(--red-light); color: var(--red); }
+  .meta-mode.LLM_REJECT { background: var(--purple-light); color: var(--purple); }
 
   .empty-state { text-align: center; padding: 40px; color: var(--text-dim); font-size: 14px; }
   .loading { text-align: center; padding: 60px; color: var(--text-dim); font-size: 16px; }
@@ -218,7 +220,8 @@ function renderContent(stats, logs, filtered) {
   const modeLabels = {
     'ANSWER': { emoji: '✅', label: 'Beantwortet', color: 'green' },
     'ANSWER_WITH_CAUTION': { emoji: '⚠️', label: 'Mit Rückfrage', color: 'accent' },
-    'REJECT': { emoji: '🚫', label: 'Abgelehnt', color: 'red' }
+    'REJECT': { emoji: '🚫', label: 'Abgelehnt (Score)', color: 'red' },
+    'LLM_REJECT': { emoji: '🤖', label: 'Abgelehnt (LLM)', color: 'purple' }
   };
 
   // Score distribution from filtered set
@@ -256,6 +259,7 @@ function renderContent(stats, logs, filtered) {
           ${stats.modes?.ANSWER ? `<div class="mode-answer ${activeFilter && activeFilter !== 'ANSWER' ? 'dimmed' : ''}" style="width:${answerPct}%" onclick="setFilter('ANSWER')"><span class="bar-label">${stats.modes.ANSWER}</span></div>` : ''}
           ${stats.modes?.ANSWER_WITH_CAUTION ? `<div class="mode-caution ${activeFilter && activeFilter !== 'ANSWER_WITH_CAUTION' ? 'dimmed' : ''}" style="width:${cautionPct}%" onclick="setFilter('ANSWER_WITH_CAUTION')"><span class="bar-label">${stats.modes.ANSWER_WITH_CAUTION}</span></div>` : ''}
           ${stats.modes?.REJECT ? `<div class="mode-reject ${activeFilter && activeFilter !== 'REJECT' ? 'dimmed' : ''}" style="width:${rejectPct}%" onclick="setFilter('REJECT')"><span class="bar-label">${stats.modes.REJECT}</span></div>` : ''}
+          ${stats.modes?.LLM_REJECT ? `<div style="background:var(--purple);${activeFilter && activeFilter !== 'LLM_REJECT' ? 'opacity:0.3;' : ''}" class="${activeFilter && activeFilter !== 'LLM_REJECT' ? 'dimmed' : ''}" style="width:${((stats.modes?.LLM_REJECT || 0) / total * 100)}%" onclick="setFilter('LLM_REJECT')"><span class="bar-label">${stats.modes.LLM_REJECT}</span></div>` : ''}
         </div>
 
         <div class="mode-legend">
