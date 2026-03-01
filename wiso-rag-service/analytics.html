@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WiSo Chatbot — Analytics</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fafaf9; --surface: #ffffff; --border: #e7e5e4;
+    --text: #1c1917; --text-mid: #57534e; --text-dim: #a8a29e;
+    --accent: #f59e0b; --accent-light: #fef3c7; --accent-dark: #d97706;
+    --green: #16a34a; --green-light: #dcfce7;
+    --red: #dc2626; --red-light: #fee2e2;
+    --blue: #2563eb; --blue-light: #dbeafe;
+    --purple: #7c3aed; --purple-light: #ede9fe;
+    --radius: 16px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: 'Outfit', sans-serif; min-height: 100vh; }
+
+  .header { padding: 32px 40px 24px; display: flex; align-items: flex-end; justify-content: space-between; }
+  .header h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+  .header h1 span { color: var(--accent-dark); }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+  .header-right a { font-size: 14px; color: var(--text-dim); text-decoration: none; padding: 8px 16px; border: 1px solid var(--border); border-radius: 10px; transition: all 0.15s; }
+  .header-right a:hover { border-color: var(--accent); color: var(--accent-dark); }
+  .last-updated { font-size: 13px; color: var(--text-dim); }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 0 40px; margin-bottom: 32px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; position: relative; overflow: hidden; }
+  .stat-card .label { font-size: 13px; font-weight: 500; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .stat-card .value { font-size: 36px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
+  .stat-card .sub { font-size: 13px; color: var(--text-dim); margin-top: 6px; }
+  .stat-card .icon { position: absolute; top: 20px; right: 20px; width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+  .icon-total { background: var(--blue-light); }
+  .icon-score { background: var(--accent-light); }
+  .icon-speed { background: var(--green-light); }
+  .icon-reject { background: var(--red-light); }
+
+  .content { padding: 0 40px 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .card-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .card-header h2 { font-size: 16px; font-weight: 600; }
+  .card-header .badge { font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 500; }
+  .card-body { padding: 20px 24px; }
+
+  /* Mode bar — clickable */
+  .mode-bar { display: flex; height: 40px; border-radius: 10px; overflow: hidden; margin-bottom: 16px; cursor: pointer; }
+  .mode-bar div { transition: all 0.3s ease; position: relative; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; color: white; }
+  .mode-bar div:hover { filter: brightness(1.15); }
+  .mode-bar div.dimmed { opacity: 0.3; }
+  .mode-bar div .bar-label { pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+  .mode-answer { background: var(--green); }
+  .mode-caution { background: var(--accent); }
+  .mode-reject { background: var(--red); }
+
+  .mode-legend { display: flex; gap: 16px; flex-wrap: wrap; }
+  .mode-legend-item { display: flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; padding: 4px 8px; border-radius: 8px; transition: all 0.15s; user-select: none; }
+  .mode-legend-item:hover { background: var(--bg); }
+  .mode-legend-item.active { outline: 2px solid var(--text); outline-offset: 1px; }
+  .mode-legend-item .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .mode-legend-item .count { font-family: 'JetBrains Mono', monospace; font-weight: 500; color: var(--text-mid); }
+
+  .filter-hint { font-size: 12px; color: var(--text-dim); margin-top: 12px; font-style: italic; text-align: center; }
+  .filter-active-hint { font-size: 13px; color: var(--accent-dark); font-weight: 500; margin-top: 12px; text-align: center; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .clear-filter { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 2px 10px; font-size: 12px; cursor: pointer; color: var(--text-mid); font-family: 'Outfit', sans-serif; }
+  .clear-filter:hover { border-color: var(--red); color: var(--red); }
+
+  .perf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+  .perf-item { background: var(--bg); border-radius: 12px; padding: 16px; text-align: center; }
+  .perf-item .perf-value { font-size: 28px; font-weight: 700; letter-spacing: -1px; }
+  .perf-item .perf-label { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+  .perf-retrieval .perf-value { color: var(--blue); }
+  .perf-llm .perf-value { color: var(--purple); }
+
+  /* Score distribution */
+  .score-bars { display: flex; flex-direction: column; gap: 8px; }
+  .score-row { display: flex; align-items: center; gap: 12px; cursor: pointer; border-radius: 8px; padding: 2px 0; transition: background 0.15s; }
+  .score-row:hover { background: var(--bg); }
+  .score-label { font-size: 13px; font-family: 'JetBrains Mono', monospace; width: 60px; color: var(--text-mid); text-align: right; }
+  .score-track { flex: 1; height: 28px; background: var(--bg); border-radius: 6px; overflow: hidden; }
+  .score-fill { height: 100%; border-radius: 6px; transition: width 0.8s ease; display: flex; align-items: center; justify-content: flex-end; padding-right: 10px; font-size: 12px; font-family: 'JetBrains Mono', monospace; font-weight: 500; color: white; min-width: 28px; }
+  .fill-high { background: var(--green); }
+  .fill-mid { background: var(--accent); }
+  .fill-low { background: var(--red); }
+
+  /* Query list */
+  .full-width { grid-column: 1 / -1; }
+  .query-list { max-height: 500px; overflow-y: auto; }
+  .query-list::-webkit-scrollbar { width: 4px; }
+  .query-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .query-item { padding: 14px 0; border-bottom: 1px solid var(--border); animation: fadeIn 0.3s ease; }
+  .query-item:last-child { border-bottom: none; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .query-question { font-size: 15px; font-weight: 500; margin-bottom: 6px; }
+  .query-answer { font-size: 13px; color: var(--text-mid); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .query-meta { display: flex; gap: 10px; margin-top: 8px; font-size: 12px; font-family: 'JetBrains Mono', monospace; flex-wrap: wrap; }
+  .query-meta span { padding: 2px 8px; border-radius: 6px; }
+  .meta-score { background: var(--accent-light); color: var(--accent-dark); }
+  .meta-time { background: var(--blue-light); color: var(--blue); }
+  .meta-timestamp { color: var(--text-dim); }
+  .meta-mode { font-weight: 500; }
+  .meta-mode.ANSWER { background: var(--green-light); color: var(--green); }
+  .meta-mode.ANSWER_WITH_CAUTION { background: var(--accent-light); color: var(--accent-dark); }
+  .meta-mode.REJECT { background: var(--red-light); color: var(--red); }
+
+  .empty-state { text-align: center; padding: 40px; color: var(--text-dim); font-size: 14px; }
+  .loading { text-align: center; padding: 60px; color: var(--text-dim); font-size: 16px; }
+
+  @media (max-width: 900px) {
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .content { grid-template-columns: 1fr; }
+    .header, .stats-grid, .content { padding-left: 20px; padding-right: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>📊 WiSo Chatbot <span>Analytics</span></h1>
+    <div class="last-updated" id="lastUpdated">Lade Daten...</div>
+  </div>
+  <div class="header-right">
+    <a href="/">← Chatbot</a>
+    <a href="/inspector">🔬 Inspector</a>
+  </div>
+</div>
+
+<div class="stats-grid" id="statsGrid">
+  <div class="stat-card"><div class="label">Laden...</div><div class="value">—</div></div>
+  <div class="stat-card"><div class="label">Laden...</div><div class="value">—</div></div>
+  <div class="stat-card"><div class="label">Laden...</div><div class="value">—</div></div>
+  <div class="stat-card"><div class="label">Laden...</div><div class="value">—</div></div>
+</div>
+
+<div class="content" id="mainContent">
+  <div class="loading">Lade Dashboard...</div>
+</div>
+
+<script>
+const API = '';
+let allLogs = [];
+let allStats = {};
+let activeFilter = null; // null = show all, 'ANSWER' | 'ANSWER_WITH_CAUTION' | 'REJECT'
+
+async function loadDashboard() {
+  try {
+    const [statsRes, logsRes] = await Promise.all([
+      fetch(`${API}/logs/stats`),
+      fetch(`${API}/logs?limit=200`)
+    ]);
+    allStats = await statsRes.json();
+    const logsData = await logsRes.json();
+    allLogs = logsData.logs || [];
+    render();
+  } catch (e) {
+    document.getElementById('mainContent').innerHTML =
+      '<div class="loading">Verbindungsfehler. Ist der Server aktiv?</div>';
+  }
+}
+
+function setFilter(mode) {
+  activeFilter = activeFilter === mode ? null : mode;
+  render();
+}
+
+function render() {
+  const stats = allStats;
+  const logs = allLogs;
+  const filtered = activeFilter ? logs.filter(l => l.mode === activeFilter) : logs;
+
+  renderStats(stats);
+  renderContent(stats, logs, filtered);
+}
+
+function renderStats(stats) {
+  const rejectCount = stats.modes?.REJECT || 0;
+  const rejectPct = stats.total > 0 ? Math.round(rejectCount / stats.total * 100) : 0;
+  const answerCount = (stats.modes?.ANSWER || 0) + (stats.modes?.ANSWER_WITH_CAUTION || 0);
+
+  document.getElementById('statsGrid').innerHTML = `
+    <div class="stat-card">
+      <div class="icon icon-total">💬</div>
+      <div class="label">Gesamte Anfragen</div>
+      <div class="value">${stats.total}</div>
+      <div class="sub">${answerCount} beantwortet</div>
+    </div>
+    <div class="stat-card">
+      <div class="icon icon-score">🎯</div>
+      <div class="label">Ø Confidence Score</div>
+      <div class="value">${(stats.avg_top_score * 100).toFixed(0)}%</div>
+      <div class="sub">Top-Chunk Ähnlichkeit</div>
+    </div>
+    <div class="stat-card">
+      <div class="icon icon-speed">⚡</div>
+      <div class="label">Ø Antwortzeit</div>
+      <div class="value">${stats.avg_llm_ms > 0 ? ((stats.avg_retrieval_ms + stats.avg_llm_ms) / 1000).toFixed(1) + 's' : '—'}</div>
+      <div class="sub">Retrieval + LLM</div>
+    </div>
+    <div class="stat-card">
+      <div class="icon icon-reject">🚫</div>
+      <div class="label">Abgelehnt</div>
+      <div class="value">${rejectPct}%</div>
+      <div class="sub">${rejectCount} von ${stats.total} Anfragen</div>
+    </div>
+  `;
+
+  if (stats.last_log) {
+    const d = new Date(stats.last_log);
+    document.getElementById('lastUpdated').textContent =
+      `Letzte Anfrage: ${d.toLocaleDateString('de-DE')} um ${d.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'})}`;
+  }
+}
+
+function renderContent(stats, logs, filtered) {
+  const modeLabels = {
+    'ANSWER': { emoji: '✅', label: 'Beantwortet', color: 'green' },
+    'ANSWER_WITH_CAUTION': { emoji: '⚠️', label: 'Mit Rückfrage', color: 'accent' },
+    'REJECT': { emoji: '🚫', label: 'Abgelehnt', color: 'red' }
+  };
+
+  // Score distribution from filtered set
+  const scoreRanges = { '90-100%': 0, '80-89%': 0, '70-79%': 0, '60-69%': 0, '<60%': 0 };
+  filtered.forEach(l => {
+    const s = l.top_score * 100;
+    if (s >= 90) scoreRanges['90-100%']++;
+    else if (s >= 80) scoreRanges['80-89%']++;
+    else if (s >= 70) scoreRanges['70-79%']++;
+    else if (s >= 60) scoreRanges['60-69%']++;
+    else scoreRanges['<60%']++;
+  });
+  const maxCount = Math.max(...Object.values(scoreRanges), 1);
+
+  // Mode bar widths
+  const total = stats.total || 1;
+  const answerPct = ((stats.modes?.ANSWER || 0) / total * 100);
+  const cautionPct = ((stats.modes?.ANSWER_WITH_CAUTION || 0) / total * 100);
+  const rejectPct = ((stats.modes?.REJECT || 0) / total * 100);
+
+  // Filter title
+  const filterInfo = activeFilter
+    ? modeLabels[activeFilter]
+    : null;
+
+  document.getElementById('mainContent').innerHTML = `
+    <!-- Mode Breakdown -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Antwort-Modi</h2>
+        <span class="badge" style="background:var(--blue-light);color:var(--blue);">${stats.total} gesamt</span>
+      </div>
+      <div class="card-body">
+        <div class="mode-bar">
+          ${stats.modes?.ANSWER ? `<div class="mode-answer ${activeFilter && activeFilter !== 'ANSWER' ? 'dimmed' : ''}" style="width:${answerPct}%" onclick="setFilter('ANSWER')"><span class="bar-label">${stats.modes.ANSWER}</span></div>` : ''}
+          ${stats.modes?.ANSWER_WITH_CAUTION ? `<div class="mode-caution ${activeFilter && activeFilter !== 'ANSWER_WITH_CAUTION' ? 'dimmed' : ''}" style="width:${cautionPct}%" onclick="setFilter('ANSWER_WITH_CAUTION')"><span class="bar-label">${stats.modes.ANSWER_WITH_CAUTION}</span></div>` : ''}
+          ${stats.modes?.REJECT ? `<div class="mode-reject ${activeFilter && activeFilter !== 'REJECT' ? 'dimmed' : ''}" style="width:${rejectPct}%" onclick="setFilter('REJECT')"><span class="bar-label">${stats.modes.REJECT}</span></div>` : ''}
+        </div>
+
+        <div class="mode-legend">
+          ${Object.entries(modeLabels).map(([mode, info]) => {
+            const count = stats.modes?.[mode] || 0;
+            if (!count) return '';
+            return `<div class="mode-legend-item ${activeFilter === mode ? 'active' : ''}" onclick="setFilter('${mode}')">
+              <div class="dot" style="background:var(--${info.color})"></div> ${info.label} <span class="count">${count}</span>
+            </div>`;
+          }).join('')}
+        </div>
+
+        ${activeFilter
+          ? `<div class="filter-active-hint">
+               ${filterInfo.emoji} Zeige nur: <strong>${filterInfo.label}</strong> (${filtered.length})
+               <button class="clear-filter" onclick="setFilter(null)">✕ Filter aufheben</button>
+             </div>`
+          : `<div class="filter-hint">Klicke auf einen Balken oder eine Kategorie zum Filtern</div>`
+        }
+
+        <div class="perf-grid">
+          <div class="perf-item perf-retrieval"><div class="perf-value">${stats.avg_retrieval_ms}ms</div><div class="perf-label">Ø Retrieval</div></div>
+          <div class="perf-item perf-llm"><div class="perf-value">${stats.avg_llm_ms}ms</div><div class="perf-label">Ø LLM</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Score Distribution -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Score-Verteilung ${activeFilter ? `(${filterInfo.label})` : ''}</h2>
+        <span class="badge" style="background:var(--accent-light);color:var(--accent-dark);">${filtered.length} Anfragen</span>
+      </div>
+      <div class="card-body">
+        <div class="score-bars">
+          ${Object.entries(scoreRanges).map(([label, count]) => {
+            const pct = (count / maxCount * 100);
+            const fillClass = label.startsWith('9') ? 'fill-high' : (label.startsWith('8') || label.startsWith('7')) ? 'fill-mid' : 'fill-low';
+            return `<div class="score-row">
+              <div class="score-label">${label}</div>
+              <div class="score-track"><div class="score-fill ${fillClass}" style="width:${count > 0 ? Math.max(pct, 10) : 0}%">${count > 0 ? count : ''}</div></div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+
+    <!-- Query List — full width -->
+    <div class="card full-width">
+      <div class="card-header">
+        <h2>${activeFilter ? filterInfo.emoji + ' ' + filterInfo.label + ' — Alle Fragen' : '💬 Alle Anfragen'}</h2>
+        <span class="badge" style="background:${activeFilter === 'REJECT' ? 'var(--red-light);color:var(--red)' : 'var(--green-light);color:var(--green)'};">${filtered.length} ${activeFilter === 'REJECT' ? 'Lücken im FAQ' : 'Anfragen'}</span>
+      </div>
+      <div class="card-body">
+        ${filtered.length === 0
+          ? '<div class="empty-state">Keine Anfragen in dieser Kategorie.</div>'
+          : `<div class="query-list">
+              ${filtered.map(l => {
+                const ts = new Date(l.timestamp);
+                const timeStr = ts.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
+                const dateStr = ts.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit'});
+                return `<div class="query-item">
+                  <div class="query-question">${escapeHtml(l.question)}</div>
+                  <div class="query-answer">${escapeHtml(l.reply)}</div>
+                  <div class="query-meta">
+                    <span class="meta-mode ${l.mode}">${modeLabels[l.mode]?.emoji || ''} ${modeLabels[l.mode]?.label || l.mode}</span>
+                    <span class="meta-score">Score: ${(l.top_score * 100).toFixed(0)}%</span>
+                    <span class="meta-time">${l.llm_ms > 0 ? ((l.retrieval_ms + l.llm_ms) / 1000).toFixed(1) + 's' : '—'}</span>
+                    <span class="meta-timestamp">${dateStr} ${timeStr}</span>
+                  </div>
+                </div>`;
+              }).join('')}
+            </div>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+function escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+loadDashboard();
+setInterval(loadDashboard, 30000);
+</script>
+</body>
+</html>
