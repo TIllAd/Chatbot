@@ -17,7 +17,7 @@
     .me { align-self: flex-end; background: #eef5ff; border-color: #d7e7ff; }
     .bot { align-self: flex-start; background: #f7f7f7; }
     .header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .header-row h1 { margin: 0; }
+    .header-row h1 { margin: 0; font-size: 1.4rem; }
     .nav-links { display: flex; gap: 8px; }
     .nav-link { font-size: 0.8rem; color: #888; text-decoration: none; padding: 4px 10px; border: 1px solid #ddd; border-radius: 8px; transition: all 0.15s; }
     .nav-link:hover { color: #f59e0b; border-color: #f59e0b; }
@@ -25,7 +25,6 @@
     #debug-toggle { background: #f0f0f0; font-size: 0.85rem; }
     #debug-toggle.active { background: #ff9800; color: white; border-color: #ff9800; }
 
-    /* Typing indicator */
     .typing { display: flex; align-items: center; gap: 4px; padding: 14px 16px; }
     .typing .dot { width: 8px; height: 8px; border-radius: 50%; background: #bbb; animation: bounce 1.4s infinite both; }
     .typing .dot:nth-child(2) { animation-delay: 0.2s; }
@@ -35,7 +34,6 @@
       40% { transform: scale(1); opacity: 1; }
     }
 
-    /* Streaming cursor */
     .streaming::after {
       content: '▊';
       animation: blink 0.8s infinite;
@@ -46,7 +44,6 @@
       51%, 100% { opacity: 0; }
     }
 
-    /* Debug panel */
     .debug-panel { font-size: 0.8rem; background: #1e1e1e; color: #d4d4d4; border-radius: 8px; padding: 10px; margin-top: 4px; align-self: flex-start; width: 100%; box-sizing: border-box; }
     .debug-chunk { margin-bottom: 8px; border-bottom: 1px solid #444; padding-bottom: 8px; }
     .debug-chunk:last-child { border-bottom: none; margin-bottom: 0; }
@@ -54,6 +51,9 @@
     .debug-id { color: #9cdcfe; }
     .debug-preview { color: #ce9178; display: block; margin-top: 4px; }
     .timing { color: #888; font-size: 0.75rem; display: block; margin-bottom: 8px; }
+
+    .new-chat-btn { font-size: 0.8rem; color: #dc2626; background: none; border: 1px solid #fecaca; border-radius: 8px; padding: 4px 10px; cursor: pointer; transition: all 0.15s; }
+    .new-chat-btn:hover { background: #fee2e2; border-color: #dc2626; }
   </style>
 </head>
 
@@ -61,6 +61,7 @@
   <div class="header-row">
     <h1>WiSo Chatbot <span id="debug-indicator" style="display:none" class="debug-badge">🔍 DEBUG</span></h1>
     <div class="nav-links">
+      <button class="new-chat-btn" onclick="clearChat()" title="Neuen Chat starten">🗑 Neuer Chat</button>
       <a href="/analytics" class="nav-link" target="_blank">📊 Analytics</a>
       <a href="/inspector" class="nav-link" target="_blank">🔬 Inspector</a>
     </div>
@@ -85,21 +86,75 @@
     const debugToggle = document.getElementById('debug-toggle');
     const debugIndicator = document.getElementById('debug-indicator');
 
+    const STORAGE_KEY = 'wiso_chat_history';
+    const HISTORY_KEY = 'wiso_conv_history';
     let debugMode = false;
     let isStreaming = false;
 
-    debugToggle.addEventListener('click', () => {
-      debugMode = !debugMode;
-      debugToggle.classList.toggle('active', debugMode);
-      debugIndicator.style.display = debugMode ? 'inline' : 'none';
-    });
+    // Conversation history for API (role + content pairs)
+    let conversationHistory = [];
 
-    function addMessage(who, text) {
+    // --- Chat persistence ---
+    function saveChat() {
+      try {
+        const messages = [];
+        chat.querySelectorAll('.msg').forEach(el => {
+          if (el.id === 'typing-indicator') return;
+          if (el.classList.contains('debug-panel')) return;
+          if (el.classList.contains('me')) {
+            messages.push({ who: 'me', text: el.textContent });
+          } else if (el.classList.contains('bot')) {
+            messages.push({ who: 'bot', text: el.textContent });
+          }
+        });
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+        sessionStorage.setItem(HISTORY_KEY, JSON.stringify(conversationHistory));
+      } catch (e) {}
+    }
+
+    function loadChat() {
+      try {
+        const saved = sessionStorage.getItem(STORAGE_KEY);
+        const savedHistory = sessionStorage.getItem(HISTORY_KEY);
+
+        if (savedHistory) {
+          conversationHistory = JSON.parse(savedHistory);
+        }
+
+        if (!saved) return;
+        const messages = JSON.parse(saved);
+        if (!messages.length) return;
+
+        chat.innerHTML = '';
+        messages.forEach(m => {
+          addMessage(m.who, m.text, false);
+        });
+      } catch (e) {}
+    }
+
+    function clearChat() {
+      sessionStorage.removeItem(STORAGE_KEY);
+      sessionStorage.removeItem(HISTORY_KEY);
+      conversationHistory = [];
+      chat.innerHTML = '';
+      addMessage('bot', 'Hi! 👋 Stell eine Frage.', false);
+    }
+
+    // --- Get last N history entries for API ---
+    function getRecentHistory(maxPairs) {
+      // Return last N exchanges (max 3 pairs = 6 entries)
+      const max = maxPairs * 2;
+      return conversationHistory.slice(-max);
+    }
+
+    // --- Messages ---
+    function addMessage(who, text, save = true) {
       const div = document.createElement('div');
       div.className = 'msg ' + (who === 'me' ? 'me' : 'bot');
       div.textContent = text;
       chat.appendChild(div);
       chat.scrollTop = chat.scrollHeight;
+      if (save) saveChat();
       return div;
     }
 
@@ -110,13 +165,19 @@
       div.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
       chat.appendChild(div);
       chat.scrollTop = chat.scrollHeight;
-      return div;
     }
 
     function removeTypingIndicator() {
       const el = document.getElementById('typing-indicator');
       if (el) el.remove();
     }
+
+    // --- Debug ---
+    debugToggle.addEventListener('click', () => {
+      debugMode = !debugMode;
+      debugToggle.classList.toggle('active', debugMode);
+      debugIndicator.style.display = debugMode ? 'inline' : 'none';
+    });
 
     function addDebugPanel(debugData) {
       const panel = document.createElement('div');
@@ -126,6 +187,9 @@
       html += `<span class="timing">⏱ Retrieval: ${debugData.retrieval_ms}ms | LLM: ${debugData.llm_ms}ms | Modell: ${debugData.model}</span>`;
       html += `<span class="timing">🎯 Top Score: ${debugData.top_score} | Mode: ${debugData.mode} | Verdict: ${debugData.verdict}</span>`;
       html += `<span class="timing">⚙️ Vec: ${(debugData.vector_weight ?? 0).toFixed(2)} | BM25: ${(debugData.bm25_weight ?? 0).toFixed(2)} | Search: ${debugData.search_mode}</span>`;
+      if (debugData.rewritten_query) {
+        html += `<span class="timing">🔄 Rewritten: "${debugData.rewritten_query}"</span>`;
+      }
 
       debugData.retrieved_chunks.forEach(chunk => {
         html += `<div class="debug-chunk">`;
@@ -141,6 +205,7 @@
       chat.scrollTop = chat.scrollHeight;
     }
 
+    // --- Streaming ---
     async function sendStreaming(text) {
       addTypingIndicator();
 
@@ -148,7 +213,10 @@
         const res = await fetch('/chat/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text })
+          body: JSON.stringify({
+            message: text,
+            history: getRecentHistory(3)
+          })
         });
 
         if (!res.ok) {
@@ -169,7 +237,7 @@
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n');
-          buffer = lines.pop(); // Keep incomplete line in buffer
+          buffer = lines.pop();
 
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue;
@@ -180,11 +248,11 @@
               const event = JSON.parse(jsonStr);
 
               if (event.type === 'meta') {
-                // Retrieval done — remove typing, create bot message
                 removeTypingIndicator();
-                botDiv = addMessage('bot', '');
-                botDiv.classList.add('streaming');
-                botDiv.textContent = '';
+                botDiv = document.createElement('div');
+                botDiv.className = 'msg bot streaming';
+                chat.appendChild(botDiv);
+                chat.scrollTop = chat.scrollHeight;
               }
 
               if (event.type === 'token' && botDiv) {
@@ -194,18 +262,21 @@
               }
 
               if (event.type === 'token' && !botDiv) {
-                // Reject case — no meta first, just full text
                 removeTypingIndicator();
-                botDiv = addMessage('bot', event.content);
+                botDiv = document.createElement('div');
+                botDiv.className = 'msg bot';
+                botDiv.textContent = event.content;
                 fullText = event.content;
+                chat.appendChild(botDiv);
               }
 
               if (event.type === 'done') {
                 if (botDiv) botDiv.classList.remove('streaming');
+                // Add bot reply to conversation history
+                conversationHistory.push({ role: "assistant", content: fullText });
+                saveChat();
               }
-            } catch (e) {
-              // Skip malformed JSON
-            }
+            } catch (e) {}
           }
         }
       } catch (e) {
@@ -214,6 +285,7 @@
       }
     }
 
+    // --- Debug mode ---
     async function sendDebug(text) {
       addTypingIndicator();
 
@@ -221,7 +293,10 @@
         const res = await fetch('/chat?debug=true', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text })
+          body: JSON.stringify({
+            message: text,
+            history: getRecentHistory(3)
+          })
         });
 
         removeTypingIndicator();
@@ -232,7 +307,13 @@
         }
 
         const data = await res.json();
-        addMessage('bot', data.reply ?? '(keine Antwort)');
+        const reply = data.reply ?? '(keine Antwort)';
+        addMessage('bot', reply);
+
+        // Add bot reply to conversation history
+        conversationHistory.push({ role: "assistant", content: reply });
+        saveChat();
+
         if (data.debug) addDebugPanel(data.debug);
       } catch (e) {
         removeTypingIndicator();
@@ -240,11 +321,16 @@
       }
     }
 
+    // --- Send ---
     async function send() {
       const text = msg.value.trim();
       if (!text || isStreaming) return;
 
       addMessage('me', text);
+
+      // Add user message to conversation history
+      conversationHistory.push({ role: "user", content: text });
+
       msg.value = '';
       isStreaming = true;
       sendBtn.disabled = true;
@@ -268,6 +354,9 @@
     msg.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') send();
     });
+
+    // Load saved chat on page load
+    loadChat();
   </script>
 </body>
 </html>
