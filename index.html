@@ -17,7 +17,7 @@
     .me { align-self: flex-end; background: #eef5ff; border-color: #d7e7ff; }
     .bot { align-self: flex-start; background: #f7f7f7; }
     .header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .header-row h1 { margin: 0; }
+    .header-row h1 { margin: 0; font-size: 1.4rem; }
     .nav-links { display: flex; gap: 8px; }
     .nav-link { font-size: 0.8rem; color: #888; text-decoration: none; padding: 4px 10px; border: 1px solid #ddd; border-radius: 8px; transition: all 0.15s; }
     .nav-link:hover { color: #f59e0b; border-color: #f59e0b; }
@@ -54,6 +54,10 @@
     .debug-id { color: #9cdcfe; }
     .debug-preview { color: #ce9178; display: block; margin-top: 4px; }
     .timing { color: #888; font-size: 0.75rem; display: block; margin-bottom: 8px; }
+
+    /* New chat button */
+    .new-chat-btn { font-size: 0.8rem; color: #dc2626; background: none; border: 1px solid #fecaca; border-radius: 8px; padding: 4px 10px; cursor: pointer; transition: all 0.15s; }
+    .new-chat-btn:hover { background: #fee2e2; border-color: #dc2626; }
   </style>
 </head>
 
@@ -61,6 +65,7 @@
   <div class="header-row">
     <h1>WiSo Chatbot <span id="debug-indicator" style="display:none" class="debug-badge">🔍 DEBUG</span></h1>
     <div class="nav-links">
+      <button class="new-chat-btn" onclick="clearChat()" title="Neuen Chat starten">🗑 Neuer Chat</button>
       <a href="/analytics" class="nav-link" target="_blank">📊 Analytics</a>
       <a href="/inspector" class="nav-link" target="_blank">🔬 Inspector</a>
     </div>
@@ -85,21 +90,65 @@
     const debugToggle = document.getElementById('debug-toggle');
     const debugIndicator = document.getElementById('debug-indicator');
 
+    const STORAGE_KEY = 'wiso_chat_history';
     let debugMode = false;
     let isStreaming = false;
 
-    debugToggle.addEventListener('click', () => {
-      debugMode = !debugMode;
-      debugToggle.classList.toggle('active', debugMode);
-      debugIndicator.style.display = debugMode ? 'inline' : 'none';
-    });
+    // --- Chat persistence ---
+    function saveChat() {
+      try {
+        const messages = [];
+        chat.querySelectorAll('.msg').forEach(el => {
+          // Skip typing indicator
+          if (el.id === 'typing-indicator') return;
+          // Skip debug panels
+          if (el.classList.contains('debug-panel')) return;
 
-    function addMessage(who, text) {
+          if (el.classList.contains('me')) {
+            messages.push({ who: 'me', text: el.textContent });
+          } else if (el.classList.contains('bot')) {
+            messages.push({ who: 'bot', text: el.textContent });
+          }
+        });
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+      } catch (e) {
+        // sessionStorage might be unavailable
+      }
+    }
+
+    function loadChat() {
+      try {
+        const saved = sessionStorage.getItem(STORAGE_KEY);
+        if (!saved) return;
+
+        const messages = JSON.parse(saved);
+        if (!messages.length) return;
+
+        // Clear default welcome message
+        chat.innerHTML = '';
+
+        messages.forEach(m => {
+          addMessage(m.who, m.text, false); // false = don't save again
+        });
+      } catch (e) {
+        // Ignore errors, start fresh
+      }
+    }
+
+    function clearChat() {
+      sessionStorage.removeItem(STORAGE_KEY);
+      chat.innerHTML = '';
+      addMessage('bot', 'Hi! 👋 Stell eine Frage.', false);
+    }
+
+    // --- Messages ---
+    function addMessage(who, text, save = true) {
       const div = document.createElement('div');
       div.className = 'msg ' + (who === 'me' ? 'me' : 'bot');
       div.textContent = text;
       chat.appendChild(div);
       chat.scrollTop = chat.scrollHeight;
+      if (save) saveChat();
       return div;
     }
 
@@ -117,6 +166,13 @@
       const el = document.getElementById('typing-indicator');
       if (el) el.remove();
     }
+
+    // --- Debug ---
+    debugToggle.addEventListener('click', () => {
+      debugMode = !debugMode;
+      debugToggle.classList.toggle('active', debugMode);
+      debugIndicator.style.display = debugMode ? 'inline' : 'none';
+    });
 
     function addDebugPanel(debugData) {
       const panel = document.createElement('div');
@@ -141,6 +197,7 @@
       chat.scrollTop = chat.scrollHeight;
     }
 
+    // --- Streaming ---
     async function sendStreaming(text) {
       addTypingIndicator();
 
@@ -169,7 +226,7 @@
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n');
-          buffer = lines.pop(); // Keep incomplete line in buffer
+          buffer = lines.pop();
 
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue;
@@ -180,11 +237,11 @@
               const event = JSON.parse(jsonStr);
 
               if (event.type === 'meta') {
-                // Retrieval done — remove typing, create bot message
                 removeTypingIndicator();
-                botDiv = addMessage('bot', '');
-                botDiv.classList.add('streaming');
-                botDiv.textContent = '';
+                botDiv = document.createElement('div');
+                botDiv.className = 'msg bot streaming';
+                chat.appendChild(botDiv);
+                chat.scrollTop = chat.scrollHeight;
               }
 
               if (event.type === 'token' && botDiv) {
@@ -194,18 +251,19 @@
               }
 
               if (event.type === 'token' && !botDiv) {
-                // Reject case — no meta first, just full text
                 removeTypingIndicator();
-                botDiv = addMessage('bot', event.content);
+                botDiv = document.createElement('div');
+                botDiv.className = 'msg bot';
+                botDiv.textContent = event.content;
                 fullText = event.content;
+                chat.appendChild(botDiv);
               }
 
               if (event.type === 'done') {
                 if (botDiv) botDiv.classList.remove('streaming');
+                saveChat();
               }
-            } catch (e) {
-              // Skip malformed JSON
-            }
+            } catch (e) {}
           }
         }
       } catch (e) {
@@ -214,6 +272,7 @@
       }
     }
 
+    // --- Debug mode (non-streaming) ---
     async function sendDebug(text) {
       addTypingIndicator();
 
@@ -240,6 +299,7 @@
       }
     }
 
+    // --- Send ---
     async function send() {
       const text = msg.value.trim();
       if (!text || isStreaming) return;
@@ -268,6 +328,9 @@
     msg.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') send();
     });
+
+    // Load saved chat on page load
+    loadChat();
   </script>
 </body>
 </html>
