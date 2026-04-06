@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Query, Request
 from pydantic import BaseModel
+from typing import Optional
 import chromadb
 import os
 import time
@@ -142,9 +143,79 @@ except Exception as e:
     bm25_index, all_ids, all_texts, all_originals = None, [], [], []
 print(f"BM25 index built with {len(all_ids)} chunks")
 
+# --- Query Rewriting ---
+def rewrite_query(message: str, history: list[dict]) -> str:
+    """
+    If the message contains pronouns/references that need context,
+    rewrite it into a standalone question using chat history.
+    Returns the original message if no rewriting is needed.
+    """
+    if not history:
+        return message
+
+    # Quick check: does the message likely need context?
+    # Short messages or ones with pronouns/references probably do
+    needs_context_indicators = [
+        "dafür", "damit", "davon", "dazu", "darüber", "darum",
+        "das", "dies", "diese", "diesem", "diesen",
+        "er", "sie", "es", "ihm", "ihr",
+        "dort", "da", "hier",
+        "auch", "noch", "mehr", "weiter",
+        "und", "aber",
+    ]
+
+    msg_lower = message.lower().strip()
+    words = msg_lower.split()
+
+    # If the message is long and self-contained (has a clear subject), skip rewriting
+    if len(words) > 8 and not any(w in needs_context_indicators for w in words):
+        return message
+
+    # If no context indicators found and message seems complete, skip
+    if len(words) > 4 and not any(w in needs_context_indicators for w in words):
+        return message
+
+    # Build context from last 3 exchanges
+    recent = history[-6:]  # max 3 pairs (user+bot)
+    context_lines = []
+    for msg_item in recent:
+        role = "Student" if msg_item.get("role") == "user" else "Bot"
+        context_lines.append(f"{role}: {msg_item['content']}")
+
+    context_str = "\n".join(context_lines)
+
+    try:
+        response = openai_client.chat.completions.create(
+            model=MODEL,
+            messages=[{
+                "role": "user",
+                "content": f"""Formuliere die letzte Frage als eigenständige Frage um, basierend auf dem Gesprächsverlauf.
+Ersetze alle Pronomen und Verweise (dafür, damit, das, dort, etc.) durch die konkreten Begriffe.
+Wenn die Frage bereits eigenständig verständlich ist, gib sie unverändert zurück.
+
+Gesprächsverlauf:
+{context_str}
+
+Aktuelle Frage: {message}
+
+Umformulierte eigenständige Frage (NUR die Frage, keine Erklärung):"""
+            }],
+            max_tokens=80,
+            temperature=0.0
+        )
+        rewritten = response.choices[0].message.content.strip()
+        # Remove quotes if the LLM wrapped it
+        rewritten = rewritten.strip('"').strip("'").strip("\u201E").strip("\u201C")
+        print(f"  Query rewrite: '{message}' → '{rewritten}'")
+        return rewritten
+    except Exception as e:
+        print(f"  Query rewrite failed: {e}")
+        return message
+
 # --- Retrieval ---
 class ChatRequest(BaseModel):
     message: str
+    history: Optional[list[dict]] = None  # [{"role": "user"|"bot", "content": "..."}]
 
 def retrieve_context(question: str, n_results: int = 25):
     start = time.time()
@@ -213,36 +284,42 @@ LLM_REJECT_PHRASES = [
 ]
 
 def detect_llm_reject(reply: str) -> bool:
-    """Check if the LLM refused to answer (off-topic detected by LLM itself)."""
     lower = reply.lower()
     return any(phrase in lower for phrase in LLM_REJECT_PHRASES)
 
 # --- System prompt builder ---
-def build_system_prompt(mode: str, context: str) -> str:
-    return f"""Du bist der WiSo-Chatbot der FAU Erlangen-Nürnberg. Du hilfst Erstsemester-Studierenden, sich im Studium zurechtzufinden.
+def build_system_prompt(mode: str, context: str, history: list[dict] = None) -> str:
+    history_block = ""
+    if history:
+        recent = history[-6:]
+        lines = []
+        for msg in recent:
+            role = "Student" if msg.get("role") == "user" else "Bot"
+            lines.append(f"{role}: {msg['content']}")
+        history_block = "\n\nGESPRÄCHSVERLAUF (für Kontext):\n" + "\n".join(lines)
 
-MODUS: {mode}
-
-MODUS-REGELN:
-- ANSWER_WITH_CAUTION: Antworte kurz und füge eine Rückfrage hinzu, ob das die richtige Frage war.
-- ANSWER: Antworte kurz und hilfreich.
-
-DEIN WICHTIGSTES ZIEL:
-Hilf Studierenden, die Info SELBST zu finden. Nenne immer die konkrete Quelle oder Anlaufstelle (z.B. "Homepage des Prüfungsamtes", "Campo", "StudOn", "MHB", "RRZE Website"). Nenne NIEMALS Chunk-IDs.
-
-ANTWORT-REGELN:
-- Antworte NUR mit Informationen aus den QUELLEN unten.
-- Wenn die QUELLEN keine Antwort auf die Frage enthalten, sage IMMER: "Ich kann dir nur bei Fragen rund ums Studium an der WiSo helfen 😊"
-- Das gilt auch für Witze, Smalltalk, persönliche Fragen, oder alles was nicht direkt mit dem WiSo-Studium zu tun hat.
-- Erfinde NICHTS dazu. Keine eigenen Informationen, keine Vermutungen.
-- Antworte auf Deutsch, kurz und freundlich (du-Form).
-
-FORMAT:
-1) Kurze Antwort (2-3 Sätze max)
-2) 📍 Wo du das findest: [konkrete Quelle]
-
-QUELLEN:
-{context}""".strip()
+    prompt = (
+        f"Du bist der WiSo-Chatbot der FAU Erlangen-Nürnberg. Du hilfst Erstsemester-Studierenden, sich im Studium zurechtzufinden.\n\n"
+        f"MODUS: {mode}\n\n"
+        "MODUS-REGELN:\n"
+        "- ANSWER_WITH_CAUTION: Antworte kurz und füge eine Rückfrage hinzu, ob das die richtige Frage war.\n"
+        "- ANSWER: Antworte kurz und hilfreich.\n\n"
+        "DEIN WICHTIGSTES ZIEL:\n"
+        'Hilf Studierenden, die Info SELBST zu finden. Nenne immer die konkrete Quelle oder Anlaufstelle (z.B. "Homepage des Prüfungsamtes", "Campo", "StudOn", "MHB", "RRZE Website"). Nenne NIEMALS Chunk-IDs.\n\n'
+        "ANTWORT-REGELN:\n"
+        "- Antworte NUR mit Informationen aus den QUELLEN unten.\n"
+        '- Wenn die QUELLEN keine Antwort auf die Frage enthalten, sage IMMER: "Ich kann dir nur bei Fragen rund ums Studium an der WiSo helfen 😊"\n'
+        "- Das gilt auch für Witze, Smalltalk, persönliche Fragen, oder alles was nicht direkt mit dem WiSo-Studium zu tun hat.\n"
+        "- Erfinde NICHTS dazu. Keine eigenen Informationen, keine Vermutungen.\n"
+        "- Antworte auf Deutsch, kurz und freundlich (du-Form).\n"
+        "- Beachte den GESPRÄCHSVERLAUF unten, um Rückfragen und Bezüge richtig zu verstehen.\n\n"
+        "FORMAT:\n"
+        "1) Kurze Antwort (2-3 Sätze max)\n"
+        "2) 📍 Wo du das findest: [konkrete Quelle]"
+        f"{history_block}\n\n"
+        f"QUELLEN:\n{context}"
+    )
+    return prompt.strip()
 
 # --- Inspect endpoints ---
 @app.get("/inspect/chunks")
@@ -330,9 +407,9 @@ def get_log_stats():
     except Exception as e:
         return {"error": str(e)}
 
-# --- Chat (non-streaming, kept for eval/debug) ---
-def build_debug(debug_chunks, top_score, verdict, retrieval_ms, llm_ms=0):
-    return {
+# --- Chat (non-streaming, for eval/debug) ---
+def build_debug(debug_chunks, top_score, verdict, retrieval_ms, llm_ms=0, rewritten_query=None):
+    d = {
         "retrieved_chunks": debug_chunks[:5],
         "top_score": top_score, "verdict": verdict,
         "retrieval_ms": retrieval_ms, "llm_ms": llm_ms,
@@ -340,10 +417,19 @@ def build_debug(debug_chunks, top_score, verdict, retrieval_ms, llm_ms=0):
         "search_mode": "hybrid", "vector_weight": VECTOR_WEIGHT,
         "bm25_weight": BM25_WEIGHT, "mode": "N/A"
     }
+    if rewritten_query:
+        d["rewritten_query"] = rewritten_query
+    return d
 
 @app.post("/chat")
 def chat(req: ChatRequest, debug: bool = Query(default=False)):
-    context, debug_chunks, retrieval_ms = retrieve_context(req.message)
+    history = req.history or []
+
+    # Query rewriting: resolve pronouns using chat history
+    search_query = rewrite_query(req.message, history)
+    rewritten = search_query if search_query != req.message else None
+
+    context, debug_chunks, retrieval_ms = retrieve_context(search_query)
     top_score = debug_chunks[0]["combined_score"] if debug_chunks else 0
     show_debug = debug or DEBUG_MODE
 
@@ -355,19 +441,20 @@ def chat(req: ChatRequest, debug: bool = Query(default=False)):
         )
         log_interaction({
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "question": req.message, "reply": reply, "mode": "REJECT",
+            "question": req.message, "rewritten_query": rewritten,
+            "reply": reply, "mode": "REJECT",
             "top_score": top_score,
             "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
             "retrieval_ms": retrieval_ms, "llm_ms": 0,
         })
         result = {"reply": reply}
         if show_debug:
-            result["debug"] = build_debug(debug_chunks, top_score, "below threshold - LLM skipped", retrieval_ms)
+            result["debug"] = build_debug(debug_chunks, top_score, "below threshold - LLM skipped", retrieval_ms, rewritten_query=rewritten)
             result["debug"]["mode"] = "REJECT"
         return result
 
     mode = "ANSWER" if top_score >= HIGH_CONFIDENCE else "ANSWER_WITH_CAUTION"
-    system_prompt = build_system_prompt(mode, context)
+    system_prompt = build_system_prompt(mode, context, history)
 
     llm_start = time.time()
     response = openai_client.chat.completions.create(
@@ -381,12 +468,12 @@ def chat(req: ChatRequest, debug: bool = Query(default=False)):
     llm_ms = int((time.time() - llm_start) * 1000)
     reply = response.choices[0].message.content
 
-    # Detect if LLM refused (off-topic despite high retrieval score)
     actual_mode = "LLM_REJECT" if detect_llm_reject(reply) else mode
 
     log_interaction({
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "question": req.message, "reply": reply, "mode": actual_mode,
+        "question": req.message, "rewritten_query": rewritten,
+        "reply": reply, "mode": actual_mode,
         "top_score": top_score,
         "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
         "retrieval_ms": retrieval_ms, "llm_ms": llm_ms,
@@ -397,7 +484,7 @@ def chat(req: ChatRequest, debug: bool = Query(default=False)):
         result["debug"] = build_debug(
             debug_chunks, top_score,
             "high confidence" if top_score >= HIGH_CONFIDENCE else "borderline",
-            retrieval_ms, llm_ms
+            retrieval_ms, llm_ms, rewritten_query=rewritten
         )
         result["debug"]["mode"] = actual_mode
     return result
@@ -405,20 +492,26 @@ def chat(req: ChatRequest, debug: bool = Query(default=False)):
 # --- Streaming Chat (SSE) ---
 @app.post("/chat/stream")
 def chat_stream(req: ChatRequest):
-    context, debug_chunks, retrieval_ms = retrieve_context(req.message)
+    history = req.history or []
+
+    # Query rewriting
+    search_query = rewrite_query(req.message, history)
+    rewritten = search_query if search_query != req.message else None
+
+    context, debug_chunks, retrieval_ms = retrieve_context(search_query)
     top_score = debug_chunks[0]["combined_score"] if debug_chunks else 0
 
     def generate():
-        # Send retrieval metadata first
         meta = {
             "type": "meta",
             "top_score": top_score,
             "retrieval_ms": retrieval_ms,
             "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
         }
+        if rewritten:
+            meta["rewritten_query"] = rewritten
         yield f"data: {json.dumps(meta)}\n\n"
 
-        # Below threshold → reject without calling LLM
         if top_score < LOW_CONFIDENCE:
             reply = (
                 "Ich konnte leider keine passende Antwort in meiner FAQ finden. 😕\n"
@@ -430,7 +523,8 @@ def chat_stream(req: ChatRequest):
 
             log_interaction({
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "question": req.message, "reply": reply, "mode": "REJECT",
+                "question": req.message, "rewritten_query": rewritten,
+                "reply": reply, "mode": "REJECT",
                 "top_score": top_score,
                 "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
                 "retrieval_ms": retrieval_ms, "llm_ms": 0,
@@ -438,9 +532,8 @@ def chat_stream(req: ChatRequest):
             return
 
         mode = "ANSWER" if top_score >= HIGH_CONFIDENCE else "ANSWER_WITH_CAUTION"
-        system_prompt = build_system_prompt(mode, context)
+        system_prompt = build_system_prompt(mode, context, history)
 
-        # Stream from OpenAI
         llm_start = time.time()
         full_reply = ""
 
@@ -461,17 +554,14 @@ def chat_stream(req: ChatRequest):
                 yield f"data: {json.dumps({'type': 'token', 'content': delta.content})}\n\n"
 
         llm_ms = int((time.time() - llm_start) * 1000)
-
-        # Detect if LLM refused (off-topic despite high retrieval score)
         actual_mode = "LLM_REJECT" if detect_llm_reject(full_reply) else mode
 
-        # Send done signal with timing
         yield f"data: {json.dumps({'type': 'done', 'mode': actual_mode, 'llm_ms': llm_ms})}\n\n"
 
-        # Log the full interaction
         log_interaction({
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "question": req.message, "reply": full_reply, "mode": actual_mode,
+            "question": req.message, "rewritten_query": rewritten,
+            "reply": full_reply, "mode": actual_mode,
             "top_score": top_score,
             "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
             "retrieval_ms": retrieval_ms, "llm_ms": llm_ms,
