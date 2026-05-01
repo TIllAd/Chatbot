@@ -14,7 +14,6 @@
     --red: #dc2626; --red-light: #fee2e2;
     --blue: #2563eb; --blue-light: #dbeafe;
     --purple: #7c3aed; --purple-light: #ede9fe;
-    --purple: #7c3aed; --purple-light: #ede9fe;
     --radius: 16px;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -28,7 +27,7 @@
   .header-right a:hover { border-color: var(--accent); color: var(--accent-dark); }
   .last-updated { font-size: 13px; color: var(--text-dim); }
 
-  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 0 40px; margin-bottom: 32px; }
+  .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; padding: 0 40px; margin-bottom: 32px; }
   .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; position: relative; overflow: hidden; }
   .stat-card .label { font-size: 13px; font-weight: 500; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
   .stat-card .value { font-size: 36px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
@@ -38,6 +37,7 @@
   .icon-score { background: var(--accent-light); }
   .icon-speed { background: var(--green-light); }
   .icon-reject { background: var(--red-light); }
+  .icon-feedback { background: var(--green-light); }
 
   .content { padding: 0 40px 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -46,7 +46,6 @@
   .card-header .badge { font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 500; }
   .card-body { padding: 20px 24px; }
 
-  /* Mode bar — clickable */
   .mode-bar { display: flex; height: 40px; border-radius: 10px; overflow: hidden; margin-bottom: 16px; cursor: pointer; }
   .mode-bar div { transition: all 0.3s ease; position: relative; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; color: white; }
   .mode-bar div:hover { filter: brightness(1.15); }
@@ -75,7 +74,6 @@
   .perf-retrieval .perf-value { color: var(--blue); }
   .perf-llm .perf-value { color: var(--purple); }
 
-  /* Score distribution */
   .score-bars { display: flex; flex-direction: column; gap: 8px; }
   .score-row { display: flex; align-items: center; gap: 12px; cursor: pointer; border-radius: 8px; padding: 2px 0; transition: background 0.15s; }
   .score-row:hover { background: var(--bg); }
@@ -86,7 +84,6 @@
   .fill-mid { background: var(--accent); }
   .fill-low { background: var(--red); }
 
-  /* Query list */
   .full-width { grid-column: 1 / -1; }
   .query-list { max-height: 500px; overflow-y: auto; }
   .query-list::-webkit-scrollbar { width: 4px; }
@@ -106,6 +103,14 @@
   .meta-mode.ANSWER_WITH_CAUTION { background: var(--accent-light); color: var(--accent-dark); }
   .meta-mode.REJECT { background: var(--red-light); color: var(--red); }
   .meta-mode.LLM_REJECT { background: var(--purple-light); color: var(--purple); }
+  .meta-feedback { font-weight: 500; }
+  .meta-feedback.fb-up { background: var(--green-light); color: var(--green); }
+  .meta-feedback.fb-down { background: var(--red-light); color: var(--red); }
+
+  .feedback-filters { display: flex; gap: 8px; margin-top: 12px; justify-content: center; }
+  .fb-filter { background: none; border: 1px solid var(--border); border-radius: 8px; padding: 4px 14px; cursor: pointer; font-size: 13px; font-family: 'Outfit', sans-serif; transition: all 0.15s; }
+  .fb-filter:hover { border-color: var(--accent); }
+  .fb-filter.active { border-color: var(--accent-dark); background: var(--accent-light); color: var(--accent-dark); font-weight: 500; }
 
   .empty-state { text-align: center; padding: 40px; color: var(--text-dim); font-size: 14px; }
   .loading { text-align: center; padding: 60px; color: var(--text-dim); font-size: 16px; }
@@ -135,6 +140,7 @@
   <div class="stat-card"><div class="label">Laden...</div><div class="value">—</div></div>
   <div class="stat-card"><div class="label">Laden...</div><div class="value">—</div></div>
   <div class="stat-card"><div class="label">Laden...</div><div class="value">—</div></div>
+  <div class="stat-card"><div class="label">Laden...</div><div class="value">—</div></div>
 </div>
 
 <div class="content" id="mainContent">
@@ -142,25 +148,34 @@
 </div>
 
 <script>
-const API = '';
-let allLogs = [];
-let allStats = {};
-let activeFilter = null; // null = show all, 'ANSWER' | 'ANSWER_WITH_CAUTION' | 'REJECT'
+var API = '';
+var allLogs = [];
+var allStats = {};
+var activeFilter = null;
+var feedbackFilter = null; // null, 'up', 'down'
 
-async function loadDashboard() {
-  try {
-    const [statsRes, logsRes] = await Promise.all([
-      fetch(`${API}/logs/stats`),
-      fetch(`${API}/logs?limit=200`)
-    ]);
-    allStats = await statsRes.json();
-    const logsData = await logsRes.json();
-    allLogs = logsData.logs || [];
-    render();
-  } catch (e) {
+function loadDashboard() {
+  var feedbackParam = feedbackFilter ? '&feedback=' + feedbackFilter : '';
+  Promise.all([
+    fetch(API + '/logs/stats'),
+    fetch(API + '/logs?limit=200' + feedbackParam)
+  ]).then(function(responses) {
+    return Promise.all([responses[0].json(), responses[1].json()]);
+  }).then(function(data) {
+    allStats = data[0];
+    allLogs = data[1].logs || [];
+    try {
+      render();
+    } catch (e) {
+      document.getElementById('mainContent').innerHTML =
+        '<div class="loading">Render-Fehler: ' + e.message + '</div>';
+      console.error('Render error:', e);
+    }
+  }).catch(function(e) {
     document.getElementById('mainContent').innerHTML =
       '<div class="loading">Verbindungsfehler. Ist der Server aktiv?</div>';
-  }
+    console.error('Fetch error:', e);
+  });
 }
 
 function setFilter(mode) {
@@ -168,178 +183,166 @@ function setFilter(mode) {
   render();
 }
 
-function render() {
-  const stats = allStats;
-  const logs = allLogs;
-  const filtered = activeFilter ? logs.filter(l => l.mode === activeFilter) : logs;
+function setFeedbackFilter(value) {
+  feedbackFilter = feedbackFilter === value ? null : value;
+  loadDashboard();
+}
 
+function render() {
+  var stats = allStats;
+  var logs = allLogs;
+  var filtered = activeFilter ? logs.filter(function(l) { return l.mode === activeFilter; }) : logs;
   renderStats(stats);
   renderContent(stats, logs, filtered);
 }
 
 function renderStats(stats) {
-  const rejectCount = stats.modes?.REJECT || 0;
-  const rejectPct = stats.total > 0 ? Math.round(rejectCount / stats.total * 100) : 0;
-  const answerCount = (stats.modes?.ANSWER || 0) + (stats.modes?.ANSWER_WITH_CAUTION || 0);
+  var rejectCount = (stats.modes && stats.modes.REJECT) || 0;
+  var rejectPct = stats.total > 0 ? Math.round(rejectCount / stats.total * 100) : 0;
+  var answerCount = ((stats.modes && stats.modes.ANSWER) || 0) + ((stats.modes && stats.modes.ANSWER_WITH_CAUTION) || 0);
 
-  document.getElementById('statsGrid').innerHTML = `
-    <div class="stat-card">
-      <div class="icon icon-total">💬</div>
-      <div class="label">Gesamte Anfragen</div>
-      <div class="value">${stats.total}</div>
-      <div class="sub">${answerCount} beantwortet</div>
-    </div>
-    <div class="stat-card">
-      <div class="icon icon-score">🎯</div>
-      <div class="label">Ø Confidence Score</div>
-      <div class="value">${(stats.avg_top_score * 100).toFixed(0)}%</div>
-      <div class="sub">Top-Chunk Ähnlichkeit</div>
-    </div>
-    <div class="stat-card">
-      <div class="icon icon-speed">⚡</div>
-      <div class="label">Ø Antwortzeit</div>
-      <div class="value">${stats.avg_llm_ms > 0 ? ((stats.avg_retrieval_ms + stats.avg_llm_ms) / 1000).toFixed(1) + 's' : '—'}</div>
-      <div class="sub">Retrieval + LLM</div>
-    </div>
-    <div class="stat-card">
-      <div class="icon icon-reject">🚫</div>
-      <div class="label">Abgelehnt</div>
-      <div class="value">${rejectPct}%</div>
-      <div class="sub">${rejectCount} von ${stats.total} Anfragen</div>
-    </div>
-  `;
+  document.getElementById('statsGrid').innerHTML =
+    '<div class="stat-card">' +
+      '<div class="icon icon-total">💬</div>' +
+      '<div class="label">Gesamte Anfragen</div>' +
+      '<div class="value">' + stats.total + '</div>' +
+      '<div class="sub">' + answerCount + ' beantwortet</div>' +
+    '</div>' +
+    '<div class="stat-card">' +
+      '<div class="icon icon-score">🎯</div>' +
+      '<div class="label">Ø Confidence Score</div>' +
+      '<div class="value">' + (stats.avg_top_score * 100).toFixed(0) + '%</div>' +
+      '<div class="sub">Top-Chunk Ähnlichkeit</div>' +
+    '</div>' +
+    '<div class="stat-card">' +
+      '<div class="icon icon-speed">⚡</div>' +
+      '<div class="label">Ø Antwortzeit</div>' +
+      '<div class="value">' + (stats.avg_llm_ms > 0 ? ((stats.avg_retrieval_ms + stats.avg_llm_ms) / 1000).toFixed(1) + 's' : '—') + '</div>' +
+      '<div class="sub">Retrieval + LLM</div>' +
+    '</div>' +
+    '<div class="stat-card">' +
+      '<div class="icon icon-reject">🚫</div>' +
+      '<div class="label">Abgelehnt</div>' +
+      '<div class="value">' + rejectPct + '%</div>' +
+      '<div class="sub">' + rejectCount + ' von ' + stats.total + ' Anfragen</div>' +
+    '</div>' +
+    '<div class="stat-card">' +
+      '<div class="icon icon-feedback">👍</div>' +
+      '<div class="label">Zufriedenheit</div>' +
+      '<div class="value">' + (stats.feedback_total > 0 ? (stats.satisfaction_rate * 100).toFixed(0) + '%' : '—') + '</div>' +
+      '<div class="sub" style="display:flex;gap:6px;align-items:center;">' +
+        '<span onclick="setFeedbackFilter(\'up\')" style="cursor:pointer;' + (feedbackFilter === 'up' ? 'font-weight:700;text-decoration:underline;' : '') + '">👍 ' + (stats.feedback_up || 0) + '</span> · ' +
+        '<span onclick="setFeedbackFilter(\'down\')" style="cursor:pointer;' + (feedbackFilter === 'down' ? 'font-weight:700;text-decoration:underline;' : '') + '">👎 ' + (stats.feedback_down || 0) + '</span>' +
+        ' (' + (stats.feedback_total || 0) + ' bewertet)' +
+      '</div>' +
+    '</div>';
 
   if (stats.last_log) {
-    const d = new Date(stats.last_log);
+    var d = new Date(stats.last_log);
     document.getElementById('lastUpdated').textContent =
-      `Letzte Anfrage: ${d.toLocaleDateString('de-DE')} um ${d.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'})}`;
+      'Letzte Anfrage: ' + d.toLocaleDateString('de-DE') + ' um ' + d.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
   }
 }
 
 function renderContent(stats, logs, filtered) {
-  const modeLabels = {
+  var modeLabels = {
     'ANSWER': { emoji: '✅', label: 'Beantwortet', color: 'green' },
     'ANSWER_WITH_CAUTION': { emoji: '⚠️', label: 'Mit Rückfrage', color: 'accent' },
     'REJECT': { emoji: '🚫', label: 'Abgelehnt (Score)', color: 'red' },
     'LLM_REJECT': { emoji: '🤖', label: 'Abgelehnt (LLM)', color: 'purple' }
   };
 
-  // Score distribution from filtered set
-  const scoreRanges = { '90-100%': 0, '80-89%': 0, '70-79%': 0, '60-69%': 0, '<60%': 0 };
-  filtered.forEach(l => {
-    const s = l.top_score * 100;
+  var scoreRanges = { '90-100%': 0, '80-89%': 0, '70-79%': 0, '60-69%': 0, '<60%': 0 };
+  filtered.forEach(function(l) {
+    var s = (l.top_score || 0) * 100;
     if (s >= 90) scoreRanges['90-100%']++;
     else if (s >= 80) scoreRanges['80-89%']++;
     else if (s >= 70) scoreRanges['70-79%']++;
     else if (s >= 60) scoreRanges['60-69%']++;
     else scoreRanges['<60%']++;
   });
-  const maxCount = Math.max(...Object.values(scoreRanges), 1);
+  var maxCount = Math.max.apply(null, Object.values(scoreRanges).concat([1]));
 
-  // Mode bar widths
-  const total = stats.total || 1;
-  const answerPct = ((stats.modes?.ANSWER || 0) / total * 100);
-  const cautionPct = ((stats.modes?.ANSWER_WITH_CAUTION || 0) / total * 100);
-  const rejectPct = ((stats.modes?.REJECT || 0) / total * 100);
+  var total = stats.total || 1;
+  var answerPct = ((stats.modes && stats.modes.ANSWER) || 0) / total * 100;
+  var cautionPct = ((stats.modes && stats.modes.ANSWER_WITH_CAUTION) || 0) / total * 100;
+  var rejectPct = ((stats.modes && stats.modes.REJECT) || 0) / total * 100;
 
-  // Filter title
-  const filterInfo = activeFilter
-    ? modeLabels[activeFilter]
-    : null;
+  var filterInfo = activeFilter ? modeLabels[activeFilter] : null;
 
-  document.getElementById('mainContent').innerHTML = `
-    <!-- Mode Breakdown -->
-    <div class="card">
-      <div class="card-header">
-        <h2>Antwort-Modi</h2>
-        <span class="badge" style="background:var(--blue-light);color:var(--blue);">${stats.total} gesamt</span>
-      </div>
-      <div class="card-body">
-        <div class="mode-bar">
-          ${stats.modes?.ANSWER ? `<div class="mode-answer ${activeFilter && activeFilter !== 'ANSWER' ? 'dimmed' : ''}" style="width:${answerPct}%" onclick="setFilter('ANSWER')"><span class="bar-label">${stats.modes.ANSWER}</span></div>` : ''}
-          ${stats.modes?.ANSWER_WITH_CAUTION ? `<div class="mode-caution ${activeFilter && activeFilter !== 'ANSWER_WITH_CAUTION' ? 'dimmed' : ''}" style="width:${cautionPct}%" onclick="setFilter('ANSWER_WITH_CAUTION')"><span class="bar-label">${stats.modes.ANSWER_WITH_CAUTION}</span></div>` : ''}
-          ${stats.modes?.REJECT ? `<div class="mode-reject ${activeFilter && activeFilter !== 'REJECT' ? 'dimmed' : ''}" style="width:${rejectPct}%" onclick="setFilter('REJECT')"><span class="bar-label">${stats.modes.REJECT}</span></div>` : ''}
-          ${stats.modes?.LLM_REJECT ? `<div style="background:var(--purple);${activeFilter && activeFilter !== 'LLM_REJECT' ? 'opacity:0.3;' : ''}" class="${activeFilter && activeFilter !== 'LLM_REJECT' ? 'dimmed' : ''}" style="width:${((stats.modes?.LLM_REJECT || 0) / total * 100)}%" onclick="setFilter('LLM_REJECT')"><span class="bar-label">${stats.modes.LLM_REJECT}</span></div>` : ''}
-        </div>
+  var modeBarHtml = '';
+  if (stats.modes && stats.modes.ANSWER) modeBarHtml += '<div class="mode-answer ' + (activeFilter && activeFilter !== 'ANSWER' ? 'dimmed' : '') + '" style="width:' + answerPct + '%" onclick="setFilter(\'ANSWER\')"><span class="bar-label">' + stats.modes.ANSWER + '</span></div>';
+  if (stats.modes && stats.modes.ANSWER_WITH_CAUTION) modeBarHtml += '<div class="mode-caution ' + (activeFilter && activeFilter !== 'ANSWER_WITH_CAUTION' ? 'dimmed' : '') + '" style="width:' + cautionPct + '%" onclick="setFilter(\'ANSWER_WITH_CAUTION\')"><span class="bar-label">' + stats.modes.ANSWER_WITH_CAUTION + '</span></div>';
+  if (stats.modes && stats.modes.REJECT) modeBarHtml += '<div class="mode-reject ' + (activeFilter && activeFilter !== 'REJECT' ? 'dimmed' : '') + '" style="width:' + rejectPct + '%" onclick="setFilter(\'REJECT\')"><span class="bar-label">' + stats.modes.REJECT + '</span></div>';
+  if (stats.modes && stats.modes.LLM_REJECT) {
+    var llmPct = (stats.modes.LLM_REJECT / total * 100);
+    modeBarHtml += '<div style="background:var(--purple);width:' + llmPct + '%" class="' + (activeFilter && activeFilter !== 'LLM_REJECT' ? 'dimmed' : '') + '" onclick="setFilter(\'LLM_REJECT\')"><span class="bar-label">' + stats.modes.LLM_REJECT + '</span></div>';
+  }
 
-        <div class="mode-legend">
-          ${Object.entries(modeLabels).map(([mode, info]) => {
-            const count = stats.modes?.[mode] || 0;
-            if (!count) return '';
-            return `<div class="mode-legend-item ${activeFilter === mode ? 'active' : ''}" onclick="setFilter('${mode}')">
-              <div class="dot" style="background:var(--${info.color})"></div> ${info.label} <span class="count">${count}</span>
-            </div>`;
-          }).join('')}
-        </div>
+  var legendHtml = '';
+  Object.keys(modeLabels).forEach(function(mode) {
+    var info = modeLabels[mode];
+    var count = (stats.modes && stats.modes[mode]) || 0;
+    if (!count) return;
+    legendHtml += '<div class="mode-legend-item ' + (activeFilter === mode ? 'active' : '') + '" onclick="setFilter(\'' + mode + '\')">';
+    legendHtml += '<div class="dot" style="background:var(--' + info.color + ')"></div> ' + info.label + ' <span class="count">' + count + '</span>';
+    legendHtml += '</div>';
+  });
 
-        ${activeFilter
-          ? `<div class="filter-active-hint">
-               ${filterInfo.emoji} Zeige nur: <strong>${filterInfo.label}</strong> (${filtered.length})
-               <button class="clear-filter" onclick="setFilter(null)">✕ Filter aufheben</button>
-             </div>`
-          : `<div class="filter-hint">Klicke auf einen Balken oder eine Kategorie zum Filtern</div>`
-        }
+  var scoreHtml = '';
+  Object.keys(scoreRanges).forEach(function(label) {
+    var count = scoreRanges[label];
+    var pct = (count / maxCount * 100);
+    var fillClass = label.charAt(0) === '9' ? 'fill-high' : (label.charAt(0) === '8' || label.charAt(0) === '7') ? 'fill-mid' : 'fill-low';
+    scoreHtml += '<div class="score-row"><div class="score-label">' + label + '</div><div class="score-track"><div class="score-fill ' + fillClass + '" style="width:' + (count > 0 ? Math.max(pct, 10) : 0) + '%">' + (count > 0 ? count : '') + '</div></div></div>';
+  });
 
-        <div class="perf-grid">
-          <div class="perf-item perf-retrieval"><div class="perf-value">${stats.avg_retrieval_ms}ms</div><div class="perf-label">Ø Retrieval</div></div>
-          <div class="perf-item perf-llm"><div class="perf-value">${stats.avg_llm_ms}ms</div><div class="perf-label">Ø LLM</div></div>
-        </div>
-      </div>
-    </div>
+  var filterHtml = '';
+  if (activeFilter && filterInfo) {
+    filterHtml = '<div class="filter-active-hint">' + filterInfo.emoji + ' Zeige nur: <strong>' + filterInfo.label + '</strong> (' + filtered.length + ') <button class="clear-filter" onclick="setFilter(null)">✕ Filter aufheben</button></div>';
+  } else {
+    filterHtml = '<div class="filter-hint">Klicke auf einen Balken oder eine Kategorie zum Filtern</div>';
+  }
 
-    <!-- Score Distribution -->
-    <div class="card">
-      <div class="card-header">
-        <h2>Score-Verteilung ${activeFilter ? `(${filterInfo.label})` : ''}</h2>
-        <span class="badge" style="background:var(--accent-light);color:var(--accent-dark);">${filtered.length} Anfragen</span>
-      </div>
-      <div class="card-body">
-        <div class="score-bars">
-          ${Object.entries(scoreRanges).map(([label, count]) => {
-            const pct = (count / maxCount * 100);
-            const fillClass = label.startsWith('9') ? 'fill-high' : (label.startsWith('8') || label.startsWith('7')) ? 'fill-mid' : 'fill-low';
-            return `<div class="score-row">
-              <div class="score-label">${label}</div>
-              <div class="score-track"><div class="score-fill ${fillClass}" style="width:${count > 0 ? Math.max(pct, 10) : 0}%">${count > 0 ? count : ''}</div></div>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>
-    </div>
+  var queryHtml = '';
+  if (filtered.length === 0) {
+    queryHtml = '<div class="empty-state">Keine Anfragen in dieser Kategorie.</div>';
+  } else {
+    queryHtml = '<div class="query-list">';
+    filtered.forEach(function(l) {
+      var ts = new Date(l.timestamp);
+      var timeStr = ts.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
+      var dateStr = ts.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit'});
+      var mInfo = modeLabels[l.mode] || { emoji: '', label: l.mode };
+      queryHtml += '<div class="query-item">';
+      queryHtml += '<div class="query-question">' + escapeHtml(l.question || '') + '</div>';
+      queryHtml += '<div class="query-answer">' + escapeHtml(l.reply || '') + '</div>';
+      queryHtml += '<div class="query-meta">';
+      queryHtml += '<span class="meta-mode ' + (l.mode || '') + '">' + mInfo.emoji + ' ' + mInfo.label + '</span>';
+      queryHtml += '<span class="meta-score">Score: ' + ((l.top_score || 0) * 100).toFixed(0) + '%</span>';
+      queryHtml += '<span class="meta-time">' + (l.llm_ms > 0 ? ((l.retrieval_ms + l.llm_ms) / 1000).toFixed(1) + 's' : '—') + '</span>';
+      queryHtml += '<span class="meta-timestamp">' + dateStr + ' ' + timeStr + '</span>';
+      if (l.feedback === 'up') queryHtml += '<span class="meta-feedback fb-up">👍</span>';
+      if (l.feedback === 'down') queryHtml += '<span class="meta-feedback fb-down">👎</span>';
+      queryHtml += '</div></div>';
+    });
+    queryHtml += '</div>';
+  }
 
-    <!-- Query List — full width -->
-    <div class="card full-width">
-      <div class="card-header">
-        <h2>${activeFilter ? filterInfo.emoji + ' ' + filterInfo.label + ' — Alle Fragen' : '💬 Alle Anfragen'}</h2>
-        <span class="badge" style="background:${activeFilter === 'REJECT' ? 'var(--red-light);color:var(--red)' : 'var(--green-light);color:var(--green)'};">${filtered.length} ${activeFilter === 'REJECT' ? 'Lücken im FAQ' : 'Anfragen'}</span>
-      </div>
-      <div class="card-body">
-        ${filtered.length === 0
-          ? '<div class="empty-state">Keine Anfragen in dieser Kategorie.</div>'
-          : `<div class="query-list">
-              ${filtered.map(l => {
-                const ts = new Date(l.timestamp);
-                const timeStr = ts.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
-                const dateStr = ts.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit'});
-                return `<div class="query-item">
-                  <div class="query-question">${escapeHtml(l.question)}</div>
-                  <div class="query-answer">${escapeHtml(l.reply)}</div>
-                  <div class="query-meta">
-                    <span class="meta-mode ${l.mode}">${modeLabels[l.mode]?.emoji || ''} ${modeLabels[l.mode]?.label || l.mode}</span>
-                    <span class="meta-score">Score: ${(l.top_score * 100).toFixed(0)}%</span>
-                    <span class="meta-time">${l.llm_ms > 0 ? ((l.retrieval_ms + l.llm_ms) / 1000).toFixed(1) + 's' : '—'}</span>
-                    <span class="meta-timestamp">${dateStr} ${timeStr}</span>
-                  </div>
-                </div>`;
-              }).join('')}
-            </div>`
-        }
-      </div>
-    </div>
-  `;
+  var cardTitle = activeFilter && filterInfo ? filterInfo.emoji + ' ' + filterInfo.label + ' — Alle Fragen' : '💬 Alle Anfragen';
+  var badgeStyle = activeFilter === 'REJECT' ? 'background:var(--red-light);color:var(--red)' : 'background:var(--green-light);color:var(--green)';
+  var badgeText = filtered.length + (activeFilter === 'REJECT' ? ' Luecken' : ' Anfragen');
+
+  document.getElementById('mainContent').innerHTML =
+    '<div class="card"><div class="card-header"><h2>Antwort-Modi</h2><span class="badge" style="background:var(--blue-light);color:var(--blue);">' + stats.total + ' gesamt</span></div><div class="card-body"><div class="mode-bar">' + modeBarHtml + '</div><div class="mode-legend">' + legendHtml + '</div>' + filterHtml + '<div class="perf-grid"><div class="perf-item perf-retrieval"><div class="perf-value">' + stats.avg_retrieval_ms + 'ms</div><div class="perf-label">Ø Retrieval</div></div><div class="perf-item perf-llm"><div class="perf-value">' + stats.avg_llm_ms + 'ms</div><div class="perf-label">Ø LLM</div></div></div></div></div>' +
+    '<div class="card"><div class="card-header"><h2>Score-Verteilung' + (activeFilter && filterInfo ? ' (' + filterInfo.label + ')' : '') + '</h2><span class="badge" style="background:var(--accent-light);color:var(--accent-dark);">' + filtered.length + ' Anfragen</span></div><div class="card-body"><div class="score-bars">' + scoreHtml + '</div></div></div>' +
+    '<div class="card full-width"><div class="card-header"><h2>' + cardTitle + '</h2><span class="badge" style="' + badgeStyle + ';">' + badgeText + '</span></div><div class="card-body">' + queryHtml + '</div></div>';
 }
 
-function escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escapeHtml(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
 loadDashboard();
 setInterval(loadDashboard, 30000);

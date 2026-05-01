@@ -42,6 +42,9 @@ def log_interaction(entry: dict):
     except Exception as e:
         print(f"Logging failed: {e}")
 
+def generate_message_id():
+    return f"msg_{int(time.time() * 1000)}"
+
 # --- ChromaDB ---
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_collection("faq")
@@ -145,16 +148,9 @@ print(f"BM25 index built with {len(all_ids)} chunks")
 
 # --- Query Rewriting ---
 def rewrite_query(message: str, history: list[dict]) -> str:
-    """
-    If the message contains pronouns/references that need context,
-    rewrite it into a standalone question using chat history.
-    Returns the original message if no rewriting is needed.
-    """
     if not history:
         return message
 
-    # Quick check: does the message likely need context?
-    # Short messages or ones with pronouns/references probably do
     needs_context_indicators = [
         "dafür", "damit", "davon", "dazu", "darüber", "darum",
         "das", "dies", "diese", "diesem", "diesen",
@@ -167,16 +163,13 @@ def rewrite_query(message: str, history: list[dict]) -> str:
     msg_lower = message.lower().strip()
     words = msg_lower.split()
 
-    # If the message is long and self-contained (has a clear subject), skip rewriting
     if len(words) > 8 and not any(w in needs_context_indicators for w in words):
         return message
 
-    # If no context indicators found and message seems complete, skip
     if len(words) > 4 and not any(w in needs_context_indicators for w in words):
         return message
 
-    # Build context from last 3 exchanges
-    recent = history[-6:]  # max 3 pairs (user+bot)
+    recent = history[-6:]
     context_lines = []
     for msg_item in recent:
         role = "Student" if msg_item.get("role") == "user" else "Bot"
@@ -204,9 +197,8 @@ Umformulierte eigenständige Frage (NUR die Frage, keine Erklärung):"""
             temperature=0.0
         )
         rewritten = response.choices[0].message.content.strip()
-        # Remove quotes if the LLM wrapped it
         rewritten = rewritten.strip('"').strip("'").strip("\u201E").strip("\u201C")
-        print(f"  Query rewrite: '{message}' → '{rewritten}'")
+        print(f"  Query rewrite: '{message}' -> '{rewritten}'")
         return rewritten
     except Exception as e:
         print(f"  Query rewrite failed: {e}")
@@ -215,7 +207,7 @@ Umformulierte eigenständige Frage (NUR die Frage, keine Erklärung):"""
 # --- Retrieval ---
 class ChatRequest(BaseModel):
     message: str
-    history: Optional[list[dict]] = None  # [{"role": "user"|"bot", "content": "..."}]
+    history: Optional[list[dict]] = None
 
 def retrieve_context(question: str, n_results: int = 25):
     start = time.time()
@@ -296,26 +288,26 @@ def build_system_prompt(mode: str, context: str, history: list[dict] = None) -> 
         for msg in recent:
             role = "Student" if msg.get("role") == "user" else "Bot"
             lines.append(f"{role}: {msg['content']}")
-        history_block = "\n\nGESPRÄCHSVERLAUF (für Kontext):\n" + "\n".join(lines)
+        history_block = "\n\nGESPRACHSVERLAUF (fuer Kontext):\n" + "\n".join(lines)
 
     prompt = (
-        f"Du bist der WiSo-Chatbot der FAU Erlangen-Nürnberg. Du hilfst Erstsemester-Studierenden, sich im Studium zurechtzufinden.\n\n"
+        f"Du bist der WiSo-Chatbot der FAU Erlangen-Nuernberg. Du hilfst Erstsemester-Studierenden, sich im Studium zurechtzufinden.\n\n"
         f"MODUS: {mode}\n\n"
         "MODUS-REGELN:\n"
-        "- ANSWER_WITH_CAUTION: Antworte kurz und füge eine Rückfrage hinzu, ob das die richtige Frage war.\n"
+        "- ANSWER_WITH_CAUTION: Antworte kurz und fuege eine Rueckfrage hinzu, ob das die richtige Frage war.\n"
         "- ANSWER: Antworte kurz und hilfreich.\n\n"
         "DEIN WICHTIGSTES ZIEL:\n"
-        'Hilf Studierenden, die Info SELBST zu finden. Nenne immer die konkrete Quelle oder Anlaufstelle (z.B. "Homepage des Prüfungsamtes", "Campo", "StudOn", "MHB", "RRZE Website"). Nenne NIEMALS Chunk-IDs.\n\n'
+        'Hilf Studierenden, die Info SELBST zu finden. Nenne immer die konkrete Quelle oder Anlaufstelle (z.B. "Homepage des Pruefungsamtes", "Campo", "StudOn", "MHB", "RRZE Website"). Nenne NIEMALS Chunk-IDs.\n\n'
         "ANTWORT-REGELN:\n"
         "- Antworte NUR mit Informationen aus den QUELLEN unten.\n"
-        '- Wenn die QUELLEN keine Antwort auf die Frage enthalten, sage IMMER: "Ich kann dir nur bei Fragen rund ums Studium an der WiSo helfen 😊"\n'
-        "- Das gilt auch für Witze, Smalltalk, persönliche Fragen, oder alles was nicht direkt mit dem WiSo-Studium zu tun hat.\n"
+        '- Wenn die QUELLEN keine Antwort auf die Frage enthalten, sage IMMER: "Ich kann dir nur bei Fragen rund ums Studium an der WiSo helfen"\n'
+        "- Das gilt auch fuer Witze, Smalltalk, persoenliche Fragen, oder alles was nicht direkt mit dem WiSo-Studium zu tun hat.\n"
         "- Erfinde NICHTS dazu. Keine eigenen Informationen, keine Vermutungen.\n"
         "- Antworte auf Deutsch, kurz und freundlich (du-Form).\n"
-        "- Beachte den GESPRÄCHSVERLAUF unten, um Rückfragen und Bezüge richtig zu verstehen.\n\n"
+        "- Beachte den GESPRAECHSVERLAUF unten, um Rueckfragen und Bezuege richtig zu verstehen.\n\n"
         "FORMAT:\n"
-        "1) Kurze Antwort (2-3 Sätze max)\n"
-        "2) 📍 Wo du das findest: [konkrete Quelle]"
+        "1) Kurze Antwort (2-3 Saetze max)\n"
+        "2) Wo du das findest: [konkrete Quelle]"
         f"{history_block}\n\n"
         f"QUELLEN:\n{context}"
     )
@@ -349,23 +341,63 @@ def inspect_search(req: InspectSearchRequest):
         chunk["document"] = all_texts[idx]
     return {"results": debug_chunks, "elapsed_ms": elapsed, "query": req.query}
 
+# --- Feedback endpoint ---
+class FeedbackRequest(BaseModel):
+    message_id: str
+    rating: str  # "up" or "down"
+
+@app.post("/feedback")
+def submit_feedback(req: FeedbackRequest):
+    log_interaction({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "type": "feedback",
+        "message_id": req.message_id,
+        "rating": req.rating,
+    })
+    return {"status": "ok"}
+
 # --- Logs endpoints ---
 @app.get("/logs")
-def get_logs(limit: int = Query(default=100), mode: str = Query(default=None)):
+def get_logs(limit: int = Query(default=100), mode: str = Query(default=None), feedback: str = Query(default=None)):
     try:
         if not os.path.exists(LOG_FILE):
             return {"logs": [], "total": 0}
-        logs = []
+
+        chat_logs = []
+        feedback_map = {}  # message_id -> rating
+
         with open(LOG_FILE, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if line:
-                    logs.append(json.loads(line))
+                if not line:
+                    continue
+                entry = json.loads(line)
+                if entry.get("type") == "feedback":
+                    feedback_map[entry.get("message_id")] = entry.get("rating")
+                else:
+                    chat_logs.append(entry)
+
+        # Attach feedback rating to chat logs
+        for log in chat_logs:
+            mid = log.get("message_id")
+            if mid and mid in feedback_map:
+                log["feedback"] = feedback_map[mid]
+
+        # Filter by mode
         if mode:
-            logs = [l for l in logs if l.get("mode") == mode]
-        total = len(logs)
-        logs = list(reversed(logs))[:limit]
-        return {"logs": logs, "total": total}
+            chat_logs = [l for l in chat_logs if l.get("mode") == mode]
+
+        # Filter by feedback
+        if feedback == "up":
+            chat_logs = [l for l in chat_logs if l.get("feedback") == "up"]
+        elif feedback == "down":
+            chat_logs = [l for l in chat_logs if l.get("feedback") == "down"]
+        elif feedback == "none":
+            chat_logs = [l for l in chat_logs if not l.get("feedback")]
+
+        total = len(chat_logs)
+        chat_logs = list(reversed(chat_logs))[:limit]
+        return {"logs": chat_logs, "total": total}
     except Exception as e:
         return {"error": str(e)}
 
@@ -386,7 +418,17 @@ def get_log_stats():
         scores = []
         retrieval_times = []
         llm_times = []
+        feedback_up = 0
+        feedback_down = 0
+        chat_count = 0
         for log in logs:
+            if log.get("type") == "feedback":
+                if log.get("rating") == "up":
+                    feedback_up += 1
+                elif log.get("rating") == "down":
+                    feedback_down += 1
+                continue
+            chat_count += 1
             m = log.get("mode", "unknown")
             modes[m] = modes.get(m, 0) + 1
             if log.get("top_score"):
@@ -395,14 +437,19 @@ def get_log_stats():
                 retrieval_times.append(log["retrieval_ms"])
             if log.get("llm_ms"):
                 llm_times.append(log["llm_ms"])
+        feedback_total = feedback_up + feedback_down
         return {
-            "total": len(logs),
+            "total": chat_count,
             "modes": modes,
             "avg_top_score": round(sum(scores) / len(scores), 4) if scores else 0,
             "avg_retrieval_ms": round(sum(retrieval_times) / len(retrieval_times)) if retrieval_times else 0,
             "avg_llm_ms": round(sum(llm_times) / len(llm_times)) if llm_times else 0,
             "first_log": logs[0].get("timestamp"),
             "last_log": logs[-1].get("timestamp"),
+            "feedback_up": feedback_up,
+            "feedback_down": feedback_down,
+            "feedback_total": feedback_total,
+            "satisfaction_rate": round(feedback_up / feedback_total, 4) if feedback_total else 0,
         }
     except Exception as e:
         return {"error": str(e)}
@@ -424,8 +471,8 @@ def build_debug(debug_chunks, top_score, verdict, retrieval_ms, llm_ms=0, rewrit
 @app.post("/chat")
 def chat(req: ChatRequest, debug: bool = Query(default=False)):
     history = req.history or []
+    message_id = generate_message_id()
 
-    # Query rewriting: resolve pronouns using chat history
     search_query = rewrite_query(req.message, history)
     rewritten = search_query if search_query != req.message else None
 
@@ -435,19 +482,20 @@ def chat(req: ChatRequest, debug: bool = Query(default=False)):
 
     if top_score < LOW_CONFIDENCE:
         reply = (
-            "Ich konnte leider keine passende Antwort in meiner FAQ finden. 😕\n"
+            "Ich konnte leider keine passende Antwort in meiner FAQ finden.\n"
             "Versuche es mit einer anderen Formulierung oder einem anderen Stichwort, "
             "oder schau direkt in den Quellen nach."
         )
         log_interaction({
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "message_id": message_id,
             "question": req.message, "rewritten_query": rewritten,
             "reply": reply, "mode": "REJECT",
             "top_score": top_score,
             "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
             "retrieval_ms": retrieval_ms, "llm_ms": 0,
         })
-        result = {"reply": reply}
+        result = {"reply": reply, "message_id": message_id}
         if show_debug:
             result["debug"] = build_debug(debug_chunks, top_score, "below threshold - LLM skipped", retrieval_ms, rewritten_query=rewritten)
             result["debug"]["mode"] = "REJECT"
@@ -472,6 +520,7 @@ def chat(req: ChatRequest, debug: bool = Query(default=False)):
 
     log_interaction({
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "message_id": message_id,
         "question": req.message, "rewritten_query": rewritten,
         "reply": reply, "mode": actual_mode,
         "top_score": top_score,
@@ -479,7 +528,7 @@ def chat(req: ChatRequest, debug: bool = Query(default=False)):
         "retrieval_ms": retrieval_ms, "llm_ms": llm_ms,
     })
 
-    result = {"reply": reply}
+    result = {"reply": reply, "message_id": message_id}
     if show_debug:
         result["debug"] = build_debug(
             debug_chunks, top_score,
@@ -493,8 +542,8 @@ def chat(req: ChatRequest, debug: bool = Query(default=False)):
 @app.post("/chat/stream")
 def chat_stream(req: ChatRequest):
     history = req.history or []
+    message_id = generate_message_id()
 
-    # Query rewriting
     search_query = rewrite_query(req.message, history)
     rewritten = search_query if search_query != req.message else None
 
@@ -514,15 +563,16 @@ def chat_stream(req: ChatRequest):
 
         if top_score < LOW_CONFIDENCE:
             reply = (
-                "Ich konnte leider keine passende Antwort in meiner FAQ finden. 😕\n"
+                "Ich konnte leider keine passende Antwort in meiner FAQ finden.\n"
                 "Versuche es mit einer anderen Formulierung oder einem anderen Stichwort, "
                 "oder schau direkt in den Quellen nach."
             )
             yield f"data: {json.dumps({'type': 'token', 'content': reply})}\n\n"
-            yield f"data: {json.dumps({'type': 'done', 'mode': 'REJECT'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'mode': 'REJECT', 'message_id': message_id})}\n\n"
 
             log_interaction({
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "message_id": message_id,
                 "question": req.message, "rewritten_query": rewritten,
                 "reply": reply, "mode": "REJECT",
                 "top_score": top_score,
@@ -556,10 +606,11 @@ def chat_stream(req: ChatRequest):
         llm_ms = int((time.time() - llm_start) * 1000)
         actual_mode = "LLM_REJECT" if detect_llm_reject(full_reply) else mode
 
-        yield f"data: {json.dumps({'type': 'done', 'mode': actual_mode, 'llm_ms': llm_ms})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'mode': actual_mode, 'llm_ms': llm_ms, 'message_id': message_id})}\n\n"
 
         log_interaction({
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "message_id": message_id,
             "question": req.message, "rewritten_query": rewritten,
             "reply": full_reply, "mode": actual_mode,
             "top_score": top_score,

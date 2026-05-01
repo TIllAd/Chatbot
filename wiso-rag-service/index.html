@@ -35,7 +35,7 @@
     }
 
     .streaming::after {
-      content: '▊';
+      content: '\u2588';
       animation: blink 0.8s infinite;
       color: #f59e0b;
     }
@@ -54,6 +54,14 @@
 
     .new-chat-btn { font-size: 0.8rem; color: #dc2626; background: none; border: 1px solid #fecaca; border-radius: 8px; padding: 4px 10px; cursor: pointer; transition: all 0.15s; }
     .new-chat-btn:hover { background: #fee2e2; border-color: #dc2626; }
+
+    /* Feedback buttons */
+    .feedback-row { display: flex; gap: 6px; margin-top: 6px; align-self: flex-start; }
+    .fb-btn { background: none; border: 1px solid #ddd; border-radius: 8px; padding: 4px 12px; cursor: pointer; font-size: 15px; transition: all 0.15s; line-height: 1; }
+    .fb-btn:hover { background: #f5f5f5; border-color: #bbb; }
+    .fb-btn.selected-up { border-color: #16a34a; background: #dcfce7; }
+    .fb-btn.selected-down { border-color: #dc2626; background: #fee2e2; }
+    .fb-btn.dimmed { opacity: 0.25; cursor: default; pointer-events: none; }
   </style>
 </head>
 
@@ -69,7 +77,7 @@
 
   <div class="card">
     <div class="row">
-      <input id="msg" placeholder="Schreib deine Frage…" />
+      <input id="msg" placeholder="Schreib deine Frage..." />
       <button id="send">Senden</button>
       <button id="debug-toggle" title="Debug Mode ein/aus">🔍</button>
     </div>
@@ -80,31 +88,33 @@
   </div>
 
   <script>
-    const msg = document.getElementById('msg');
-    const chat = document.getElementById('chat');
-    const sendBtn = document.getElementById('send');
-    const debugToggle = document.getElementById('debug-toggle');
-    const debugIndicator = document.getElementById('debug-indicator');
+    var msg = document.getElementById('msg');
+    var chat = document.getElementById('chat');
+    var sendBtn = document.getElementById('send');
+    var debugToggle = document.getElementById('debug-toggle');
+    var debugIndicator = document.getElementById('debug-indicator');
 
-    const STORAGE_KEY = 'wiso_chat_history';
-    const HISTORY_KEY = 'wiso_conv_history';
-    let debugMode = false;
-    let isStreaming = false;
-
-    // Conversation history for API (role + content pairs)
-    let conversationHistory = [];
+    var STORAGE_KEY = 'wiso_chat_history';
+    var HISTORY_KEY = 'wiso_conv_history';
+    var debugMode = false;
+    var isStreaming = false;
+    var conversationHistory = [];
 
     // --- Chat persistence ---
     function saveChat() {
       try {
-        const messages = [];
-        chat.querySelectorAll('.msg').forEach(el => {
+        var messages = [];
+        chat.querySelectorAll('.msg, .feedback-row').forEach(function(el) {
           if (el.id === 'typing-indicator') return;
           if (el.classList.contains('debug-panel')) return;
           if (el.classList.contains('me')) {
             messages.push({ who: 'me', text: el.textContent });
-          } else if (el.classList.contains('bot')) {
+          } else if (el.classList.contains('bot') && !el.classList.contains('typing')) {
             messages.push({ who: 'bot', text: el.textContent });
+          } else if (el.classList.contains('feedback-row')) {
+            var mid = el.dataset.messageId;
+            var selected = el.querySelector('.selected-up, .selected-down');
+            messages.push({ who: 'feedback', messageId: mid, rating: selected ? (selected.classList.contains('selected-up') ? 'up' : 'down') : null });
           }
         });
         sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
@@ -114,20 +124,21 @@
 
     function loadChat() {
       try {
-        const saved = sessionStorage.getItem(STORAGE_KEY);
-        const savedHistory = sessionStorage.getItem(HISTORY_KEY);
-
-        if (savedHistory) {
-          conversationHistory = JSON.parse(savedHistory);
-        }
-
+        var saved = sessionStorage.getItem(STORAGE_KEY);
+        var savedHistory = sessionStorage.getItem(HISTORY_KEY);
+        if (savedHistory) conversationHistory = JSON.parse(savedHistory);
         if (!saved) return;
-        const messages = JSON.parse(saved);
+        var messages = JSON.parse(saved);
         if (!messages.length) return;
-
         chat.innerHTML = '';
-        messages.forEach(m => {
-          addMessage(m.who, m.text, false);
+        messages.forEach(function(m) {
+          if (m.who === 'me') {
+            addMessage('me', m.text, false);
+          } else if (m.who === 'bot') {
+            addMessage('bot', m.text, false);
+          } else if (m.who === 'feedback') {
+            addFeedbackButtons(m.messageId, m.rating, false);
+          }
         });
       } catch (e) {}
     }
@@ -140,16 +151,14 @@
       addMessage('bot', 'Hi! 👋 Stell eine Frage.', false);
     }
 
-    // --- Get last N history entries for API ---
     function getRecentHistory(maxPairs) {
-      // Return last N exchanges (max 3 pairs = 6 entries)
-      const max = maxPairs * 2;
-      return conversationHistory.slice(-max);
+      return conversationHistory.slice(-(maxPairs * 2));
     }
 
     // --- Messages ---
-    function addMessage(who, text, save = true) {
-      const div = document.createElement('div');
+    function addMessage(who, text, save) {
+      if (save === undefined) save = true;
+      var div = document.createElement('div');
       div.className = 'msg ' + (who === 'me' ? 'me' : 'bot');
       div.textContent = text;
       chat.appendChild(div);
@@ -159,7 +168,7 @@
     }
 
     function addTypingIndicator() {
-      const div = document.createElement('div');
+      var div = document.createElement('div');
       div.className = 'msg bot typing';
       div.id = 'typing-indicator';
       div.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
@@ -168,84 +177,127 @@
     }
 
     function removeTypingIndicator() {
-      const el = document.getElementById('typing-indicator');
+      var el = document.getElementById('typing-indicator');
       if (el) el.remove();
     }
 
+    // --- Feedback ---
+    function addFeedbackButtons(messageId, preselected, save) {
+      if (save === undefined) save = true;
+      var row = document.createElement('div');
+      row.className = 'feedback-row';
+      row.dataset.messageId = messageId;
+
+      var upBtn = document.createElement('button');
+      upBtn.className = 'fb-btn';
+      upBtn.textContent = '👍';
+      upBtn.onclick = function() { handleFeedback(row, 'up'); };
+
+      var downBtn = document.createElement('button');
+      downBtn.className = 'fb-btn';
+      downBtn.textContent = '👎';
+      downBtn.onclick = function() { handleFeedback(row, 'down'); };
+
+      row.appendChild(upBtn);
+      row.appendChild(downBtn);
+      chat.appendChild(row);
+      chat.scrollTop = chat.scrollHeight;
+
+      if (preselected) {
+        applyFeedbackState(row, preselected);
+      }
+      if (save) saveChat();
+    }
+
+    function applyFeedbackState(row, rating) {
+      var buttons = row.querySelectorAll('.fb-btn');
+      buttons.forEach(function(b) {
+        b.classList.add('dimmed');
+        b.onclick = null;
+      });
+      if (rating === 'up') {
+        buttons[0].classList.remove('dimmed');
+        buttons[0].classList.add('selected-up');
+      } else {
+        buttons[1].classList.remove('dimmed');
+        buttons[1].classList.add('selected-down');
+      }
+    }
+
+    function handleFeedback(row, rating) {
+      var messageId = row.dataset.messageId;
+      applyFeedbackState(row, rating);
+      saveChat();
+      fetch('/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message_id: messageId, rating: rating })
+      }).catch(function(e) { console.error('Feedback failed:', e); });
+    }
+
     // --- Debug ---
-    debugToggle.addEventListener('click', () => {
+    debugToggle.addEventListener('click', function() {
       debugMode = !debugMode;
       debugToggle.classList.toggle('active', debugMode);
       debugIndicator.style.display = debugMode ? 'inline' : 'none';
     });
 
     function addDebugPanel(debugData) {
-      const panel = document.createElement('div');
+      var panel = document.createElement('div');
       panel.className = 'debug-panel';
-
-      let html = `<strong>🔍 Retrieved Chunks</strong>`;
-      html += `<span class="timing">⏱ Retrieval: ${debugData.retrieval_ms}ms | LLM: ${debugData.llm_ms}ms | Modell: ${debugData.model}</span>`;
-      html += `<span class="timing">🎯 Top Score: ${debugData.top_score} | Mode: ${debugData.mode} | Verdict: ${debugData.verdict}</span>`;
-      html += `<span class="timing">⚙️ Vec: ${(debugData.vector_weight ?? 0).toFixed(2)} | BM25: ${(debugData.bm25_weight ?? 0).toFixed(2)} | Search: ${debugData.search_mode}</span>`;
+      var html = '<strong>🔍 Retrieved Chunks</strong>';
+      html += '<span class="timing">Retrieval: ' + debugData.retrieval_ms + 'ms | LLM: ' + debugData.llm_ms + 'ms | Modell: ' + debugData.model + '</span>';
+      html += '<span class="timing">Top Score: ' + debugData.top_score + ' | Mode: ' + debugData.mode + ' | Verdict: ' + debugData.verdict + '</span>';
+      html += '<span class="timing">Vec: ' + (debugData.vector_weight || 0).toFixed(2) + ' | BM25: ' + (debugData.bm25_weight || 0).toFixed(2) + ' | Search: ' + debugData.search_mode + '</span>';
       if (debugData.rewritten_query) {
-        html += `<span class="timing">🔄 Rewritten: "${debugData.rewritten_query}"</span>`;
+        html += '<span class="timing">Rewritten: "' + debugData.rewritten_query + '"</span>';
       }
-
-      debugData.retrieved_chunks.forEach(chunk => {
-        html += `<div class="debug-chunk">`;
-        html += `<span class="debug-score">#${chunk.rank} Score: ${chunk.combined_score}</span> `;
-        html += `<span class="debug-id">[${chunk.id}]</span>`;
-        html += `<span style="color:#569cd6;margin-left:8px;">vec:${chunk.vector_score} bm25:${chunk.bm25_score}</span>`;
-        html += `<span class="debug-preview">${chunk.preview}</span>`;
-        html += `</div>`;
+      debugData.retrieved_chunks.forEach(function(chunk) {
+        html += '<div class="debug-chunk">';
+        html += '<span class="debug-score">#' + chunk.rank + ' Score: ' + chunk.combined_score + '</span> ';
+        html += '<span class="debug-id">[' + chunk.id + ']</span>';
+        html += '<span style="color:#569cd6;margin-left:8px;">vec:' + chunk.vector_score + ' bm25:' + chunk.bm25_score + '</span>';
+        html += '<span class="debug-preview">' + chunk.preview + '</span>';
+        html += '</div>';
       });
-
       panel.innerHTML = html;
       chat.appendChild(panel);
       chat.scrollTop = chat.scrollHeight;
     }
 
     // --- Streaming ---
-    async function sendStreaming(text) {
+    function sendStreaming(text) {
       addTypingIndicator();
-
-      try {
-        const res = await fetch('/chat/stream', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: text,
-            history: getRecentHistory(3)
-          })
-        });
-
+      fetch('/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, history: getRecentHistory(3) })
+      }).then(function(res) {
         if (!res.ok) {
           removeTypingIndicator();
-          addMessage('bot', `Fehler: HTTP ${res.status}`);
-          return;
+          addMessage('bot', 'Fehler: HTTP ' + res.status);
+          return Promise.resolve();
         }
+        var reader = res.body.getReader();
+        var decoder = new TextDecoder();
+        var botDiv = null;
+        var fullText = '';
+        var buffer = '';
+        var messageId = null;
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let botDiv = null;
-        let fullText = '';
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
+        function processChunk(result) {
+          if (result.done) return;
+          buffer += decoder.decode(result.value, { stream: true });
+          var lines = buffer.split('\n');
           buffer = lines.pop();
 
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const jsonStr = line.slice(6).trim();
+          for (var i = 0; i < lines.length; i++) {
+            var line = lines[i];
+            if (line.indexOf('data: ') !== 0) continue;
+            var jsonStr = line.slice(6).trim();
             if (!jsonStr) continue;
-
             try {
-              const event = JSON.parse(jsonStr);
+              var event = JSON.parse(jsonStr);
 
               if (event.type === 'meta') {
                 removeTypingIndicator();
@@ -272,90 +324,87 @@
 
               if (event.type === 'done') {
                 if (botDiv) botDiv.classList.remove('streaming');
-                // Add bot reply to conversation history
+                messageId = event.message_id;
                 conversationHistory.push({ role: "assistant", content: fullText });
+                if (event.mode !== 'REJECT' && messageId) {
+                  addFeedbackButtons(messageId);
+                }
                 saveChat();
               }
             } catch (e) {}
           }
+          return reader.read().then(processChunk);
         }
-      } catch (e) {
+        return reader.read().then(processChunk);
+      }).catch(function(e) {
         removeTypingIndicator();
         addMessage('bot', 'Fehler: Server nicht erreichbar.');
-      }
+      });
     }
 
     // --- Debug mode ---
-    async function sendDebug(text) {
+    function sendDebug(text) {
       addTypingIndicator();
-
-      try {
-        const res = await fetch('/chat?debug=true', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: text,
-            history: getRecentHistory(3)
-          })
-        });
-
+      fetch('/chat?debug=true', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, history: getRecentHistory(3) })
+      }).then(function(res) {
         removeTypingIndicator();
-
         if (!res.ok) {
-          addMessage('bot', `Fehler: HTTP ${res.status}`);
+          addMessage('bot', 'Fehler: HTTP ' + res.status);
           return;
         }
-
-        const data = await res.json();
-        const reply = data.reply ?? '(keine Antwort)';
+        return res.json();
+      }).then(function(data) {
+        if (!data) return;
+        var reply = data.reply || '(keine Antwort)';
         addMessage('bot', reply);
-
-        // Add bot reply to conversation history
         conversationHistory.push({ role: "assistant", content: reply });
+        if (data.message_id && (!data.debug || data.debug.mode !== 'REJECT')) {
+          addFeedbackButtons(data.message_id);
+        }
         saveChat();
-
         if (data.debug) addDebugPanel(data.debug);
-      } catch (e) {
+      }).catch(function(e) {
         removeTypingIndicator();
         addMessage('bot', 'Fehler: Server nicht erreichbar.');
-      }
+      });
     }
 
     // --- Send ---
-    async function send() {
-      const text = msg.value.trim();
+    function send() {
+      var text = msg.value.trim();
       if (!text || isStreaming) return;
-
       addMessage('me', text);
-
-      // Add user message to conversation history
       conversationHistory.push({ role: "user", content: text });
-
       msg.value = '';
       isStreaming = true;
       sendBtn.disabled = true;
       msg.disabled = true;
 
-      try {
-        if (debugMode) {
-          await sendDebug(text);
-        } else {
-          await sendStreaming(text);
-        }
-      } finally {
+      function done() {
         isStreaming = false;
         sendBtn.disabled = false;
         msg.disabled = false;
         msg.focus();
       }
+
+      if (debugMode) {
+        sendDebug(text);
+        // Debug is sync-ish via .then, re-enable after short delay
+        setTimeout(done, 500);
+      } else {
+        sendStreaming(text);
+        setTimeout(done, 500);
+      }
     }
 
     sendBtn.addEventListener('click', send);
-    msg.addEventListener('keydown', (e) => {
+    msg.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') send();
     });
 
-    // Load saved chat on page load
     loadChat();
   </script>
 </body>
