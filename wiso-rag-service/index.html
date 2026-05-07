@@ -370,6 +370,11 @@
         body: JSON.stringify({ message: text, history: getRecentHistory(3) })
       }).then(function(res) {
         removeTypingIndicator();
+        if (res.status === 429) {
+          return res.json().then(function(data) {
+            addMessage('bot', data.reply || 'Zu viele Anfragen. Bitte warte kurz.');
+          });
+        }
         if (!res.ok) {
           addMessage('bot', 'Fehler: HTTP ' + res.status);
           return;
