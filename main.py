@@ -1,19 +1,18 @@
-from fastapi import FastAPI, Query, Request
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from typing import Optional
-import chromadb
-import os
-import time
-import re
 import json
+import os
+import re
+import time
 from collections import defaultdict
-from datetime import datetime, timezone
-from rank_bm25 import BM25Okapi
+from datetime import UTC, datetime
+
+import chromadb
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
-from oauthlib.oauth1 import SignatureOnlyEndpoint, RequestValidator
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from oauthlib.oauth1 import RequestValidator, SignatureOnlyEndpoint
 from openai import OpenAI
+from pydantic import BaseModel
+from rank_bm25 import BM25Okapi
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -249,7 +248,7 @@ Umformulierte eigenständige Frage (NUR die Frage, keine Erklärung):"""
 # --- Retrieval ---
 class ChatRequest(BaseModel):
     message: str
-    history: Optional[list[dict]] = None
+    history: list[dict] | None = None
 
 def retrieve_context(question: str, n_results: int = 25):
     start = time.time()
@@ -391,7 +390,7 @@ class FeedbackRequest(BaseModel):
 @app.post("/feedback")
 def submit_feedback(req: FeedbackRequest):
     log_interaction({
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "type": "feedback",
         "message_id": req.message_id,
         "rating": req.rating,
@@ -408,7 +407,7 @@ def get_logs(limit: int = Query(default=100), mode: str = Query(default=None), f
         chat_logs = []
         feedback_map = {}  # message_id -> rating
 
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
+        with open(LOG_FILE, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -449,7 +448,7 @@ def get_log_stats():
         if not os.path.exists(LOG_FILE):
             return {"total": 0}
         logs = []
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
+        with open(LOG_FILE, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:
@@ -537,7 +536,7 @@ def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False))
             "oder schau direkt in den Quellen nach."
         )
         log_interaction({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "message_id": message_id,
             "question": req.message, "rewritten_query": rewritten,
             "reply": reply, "mode": "REJECT",
@@ -569,7 +568,7 @@ def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False))
     actual_mode = "LLM_REJECT" if detect_llm_reject(reply) else mode
 
     log_interaction({
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "message_id": message_id,
         "question": req.message, "rewritten_query": rewritten,
         "reply": reply, "mode": actual_mode,
@@ -629,7 +628,7 @@ def chat_stream(req: ChatRequest, request: Request):
             yield f"data: {json.dumps({'type': 'done', 'mode': 'REJECT', 'message_id': message_id})}\n\n"
 
             log_interaction({
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "message_id": message_id,
                 "question": req.message, "rewritten_query": rewritten,
                 "reply": reply, "mode": "REJECT",
@@ -667,7 +666,7 @@ def chat_stream(req: ChatRequest, request: Request):
         yield f"data: {json.dumps({'type': 'done', 'mode': actual_mode, 'llm_ms': llm_ms, 'message_id': message_id})}\n\n"
 
         log_interaction({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "message_id": message_id,
             "question": req.message, "rewritten_query": rewritten,
             "reply": full_reply, "mode": actual_mode,
