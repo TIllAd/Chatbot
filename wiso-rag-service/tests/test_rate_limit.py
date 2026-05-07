@@ -6,7 +6,6 @@ Usage:
   python test_rate_limit.py --url http://localhost:8000  # Against local
 """
 
-import time
 import argparse
 
 try:
@@ -47,7 +46,7 @@ def test_rate_limit(api_base, total=25, expected_limit=20):
             results["error"] += 1
             print(f"  [{i:2d}/{total}] FAILED: {e}")
 
-    print(f"\nResults:")
+    print("\nResults:")
     print(f"  OK (200):       {results['ok']}")
     print(f"  Limited (429):  {results['limited']}")
     print(f"  Errors:         {results['error']}")
@@ -65,9 +64,9 @@ def test_rate_limit(api_base, total=25, expected_limit=20):
         passed = False
 
     if passed:
-        print(f"\n  PASS: Rate limiter works correctly")
+        print("\n  PASS: Rate limiter works correctly")
     else:
-        print(f"\n  FAIL: Rate limiter not working as expected")
+        print("\n  FAIL: Rate limiter not working as expected")
 
     return passed
 
