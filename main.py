@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 import chromadb
@@ -6,6 +7,7 @@ import os
 import time
 import re
 import json
+from collections import defaultdict
 from datetime import datetime, timezone
 from rank_bm25 import BM25Okapi
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +17,46 @@ from openai import OpenAI
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# --- Rate Limiting ---
+RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "20"))  # requests per window
+RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
+
+class RateLimiter:
+    """Simple in-memory IP-based rate limiter."""
+    def __init__(self):
+        self.requests = defaultdict(list)  # ip -> [timestamps]
+
+    def is_allowed(self, ip: str) -> bool:
+        now = time.time()
+        # Clean old entries
+        self.requests[ip] = [t for t in self.requests[ip] if now - t < RATE_LIMIT_WINDOW]
+        if len(self.requests[ip]) >= RATE_LIMIT_MAX:
+            return False
+        self.requests[ip].append(now)
+        return True
+
+    def remaining(self, ip: str) -> int:
+        now = time.time()
+        self.requests[ip] = [t for t in self.requests[ip] if now - t < RATE_LIMIT_WINDOW]
+        return max(0, RATE_LIMIT_MAX - len(self.requests[ip]))
+
+rate_limiter = RateLimiter()
+
+def get_client_ip(request: Request) -> str:
+    """Get client IP, respecting Cloudflare headers."""
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        return cf_ip
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+RATE_LIMIT_REPLY = (
+    "Du hast zu viele Nachrichten in kurzer Zeit geschickt. "
+    "Bitte warte einen Moment und versuche es dann erneut."
+)
 
 # --- OpenAI Config ---
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -469,7 +511,15 @@ def build_debug(debug_chunks, top_score, verdict, retrieval_ms, llm_ms=0, rewrit
     return d
 
 @app.post("/chat")
-def chat(req: ChatRequest, debug: bool = Query(default=False)):
+def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False)):
+    # Rate limit check
+    client_ip = get_client_ip(request)
+    if not rate_limiter.is_allowed(client_ip):
+        return JSONResponse(
+            status_code=429,
+            content={"reply": RATE_LIMIT_REPLY, "rate_limited": True}
+        )
+
     history = req.history or []
     message_id = generate_message_id()
 
@@ -540,7 +590,15 @@ def chat(req: ChatRequest, debug: bool = Query(default=False)):
 
 # --- Streaming Chat (SSE) ---
 @app.post("/chat/stream")
-def chat_stream(req: ChatRequest):
+def chat_stream(req: ChatRequest, request: Request):
+    # Rate limit check
+    client_ip = get_client_ip(request)
+    if not rate_limiter.is_allowed(client_ip):
+        def rate_limited():
+            yield f"data: {json.dumps({'type': 'token', 'content': RATE_LIMIT_REPLY})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'mode': 'RATE_LIMITED'})}\n\n"
+        return StreamingResponse(rate_limited(), media_type="text/event-stream")
+
     history = req.history or []
     message_id = generate_message_id()
 
