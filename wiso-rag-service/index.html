@@ -155,12 +155,27 @@
       return conversationHistory.slice(-(maxPairs * 2));
     }
 
+    // --- Markdown helpers ---
+    function renderBotText(text) {
+      // Escape HTML first
+      var safe = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      // Convert markdown links [text](url) to clickable links
+      safe = safe.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, '<a href="$2" target="_blank" style="color:#2563eb;text-decoration:underline;">$1</a>');
+      // Convert bare URLs to clickable links
+      safe = safe.replace(/(^|[\s>])((https?:\/\/)[^\s<]+)/g, '$1<a href="$2" target="_blank" style="color:#2563eb;text-decoration:underline;">$2</a>');
+      return safe;
+    }
+
     // --- Messages ---
     function addMessage(who, text, save) {
       if (save === undefined) save = true;
       var div = document.createElement('div');
       div.className = 'msg ' + (who === 'me' ? 'me' : 'bot');
-      div.textContent = text;
+      if (who === 'bot') {
+        div.innerHTML = renderBotText(text);
+      } else {
+        div.textContent = text;
+      }
       chat.appendChild(div);
       chat.scrollTop = chat.scrollHeight;
       if (save) saveChat();
@@ -323,7 +338,11 @@
               }
 
               if (event.type === 'done') {
-                if (botDiv) botDiv.classList.remove('streaming');
+                if (botDiv) {
+                  botDiv.classList.remove('streaming');
+                  // Re-render with clickable links now that streaming is complete
+                  botDiv.innerHTML = renderBotText(fullText);
+                }
                 messageId = event.message_id;
                 conversationHistory.push({ role: "assistant", content: fullText });
                 if (event.mode !== 'REJECT' && messageId) {
