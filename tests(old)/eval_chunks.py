@@ -1,13 +1,12 @@
+import glob
 import json
-import time
 import os
 import re
-import glob
+from datetime import datetime
+
 import chromadb
 import ollama
 from rank_bm25 import BM25Okapi
-from datetime import datetime
-
 
 ##
 ## A small test how accurate the retrieval is, using a hand-crafted dataset of 20 queries with known expected chunks.
@@ -99,7 +98,7 @@ def get_previous_run():
     files = sorted(glob.glob("eval_results/eval_*.json"))
     if not files:
         return None
-    with open(files[-1], "r", encoding="utf-8") as f:
+    with open(files[-1], encoding="utf-8") as f:
         return json.load(f)
 
 def calc_overall_score(metrics):
@@ -124,7 +123,7 @@ def diff_str(current, previous):
 def run_eval(dataset_path: str = "tests/eval_dataset.json"):
     previous = get_previous_run()
 
-    with open(dataset_path, "r", encoding="utf-8") as f:
+    with open(dataset_path, encoding="utf-8") as f:
         test_cases = json.load(f)
 
     hit1 = hit3 = hit5 = 0
@@ -135,7 +134,7 @@ def run_eval(dataset_path: str = "tests/eval_dataset.json"):
     category_stats = {}
 
     print(f"\n{'='*60}")
-    print(f"  WiSo Chatbot Retrieval Eval")
+    print("  WiSo Chatbot Retrieval Eval")
     print(f"  {len(test_cases)} test cases | vec={VECTOR_WEIGHT} | bm25={BM25_WEIGHT:.1f}")
     print(f"{'='*60}\n")
 
@@ -239,7 +238,7 @@ def run_eval(dataset_path: str = "tests/eval_dataset.json"):
     if off_topic_total:
         print(f"  Off-topic: {off_topic_correct}/{off_topic_total} ({otp_pct:.0f}%){diff_str(otp_pct, prev_m['off_topic_precision']*100) if prev_m else ''}")
 
-    print(f"\n  By category:")
+    print("\n  By category:")
     for cat, stats in sorted(category_stats.items()):
         h1 = stats['hit1']
         total = stats['total']
