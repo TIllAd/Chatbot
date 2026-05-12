@@ -7,10 +7,11 @@ cleans and chunks into semantic sections, enriches with keywords, embeds, stores
 import os
 import re
 import time
-import chromadb
 from pathlib import Path
-from openai import OpenAI
+
+import chromadb
 from docling.document_converter import DocumentConverter
+from openai import OpenAI
 
 # --- Config ---
 EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
@@ -30,7 +31,7 @@ SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".html", ".md"}
 
 def parse_file(file_path: str) -> str:
     """Convert any supported file to Markdown via Docling."""
-    print(f"  Parsing with Docling...")
+    print("  Parsing with Docling...")
     result = converter.convert(file_path)
     return result.document.export_to_markdown()
 
@@ -289,7 +290,7 @@ def ingest():
     data_dir = Path(DATA_DIR)
     if not data_dir.exists():
         print(f"ERROR: Data directory '{DATA_DIR}' does not exist.")
-        print(f"Create it and add your documents (PDF, DOCX, PPTX, etc.)")
+        print("Create it and add your documents (PDF, DOCX, PPTX, etc.)")
         return
 
     # Collect all supported files

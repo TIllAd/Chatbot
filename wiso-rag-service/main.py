@@ -1,46 +1,36 @@
-from fastapi import FastAPI, Query, Request
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from typing import Optional
-import chromadb
+import json
 import os
 import time
-import re
-import json
-from collections import defaultdict
-from datetime import datetime, timezone
-from rank_bm25 import BM25Okapi
+from datetime import UTC, datetime
+from dotenv import load_dotenv
+load_dotenv()
+
+import chromadb
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
-from oauthlib.oauth1 import SignatureOnlyEndpoint, RequestValidator
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from oauthlib.oauth1 import RequestValidator, SignatureOnlyEndpoint
 from openai import OpenAI
+from pydantic import BaseModel
+from rank_bm25 import BM25Okapi
+
+from utils import (
+    tokenize,
+    detect_llm_reject,
+    RateLimiter,
+    generate_message_id,
+    build_system_prompt,
+    needs_rewrite,
+    RATE_LIMIT_REPLY,
+    HIGH_CONFIDENCE,
+    LOW_CONFIDENCE,
+    NEEDS_CONTEXT_INDICATORS,
+)
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # --- Rate Limiting ---
-RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "20"))  # requests per window
-RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
-
-class RateLimiter:
-    """Simple in-memory IP-based rate limiter."""
-    def __init__(self):
-        self.requests = defaultdict(list)  # ip -> [timestamps]
-
-    def is_allowed(self, ip: str) -> bool:
-        now = time.time()
-        # Clean old entries
-        self.requests[ip] = [t for t in self.requests[ip] if now - t < RATE_LIMIT_WINDOW]
-        if len(self.requests[ip]) >= RATE_LIMIT_MAX:
-            return False
-        self.requests[ip].append(now)
-        return True
-
-    def remaining(self, ip: str) -> int:
-        now = time.time()
-        self.requests[ip] = [t for t in self.requests[ip] if now - t < RATE_LIMIT_WINDOW]
-        return max(0, RATE_LIMIT_MAX - len(self.requests[ip]))
-
 rate_limiter = RateLimiter()
 
 def get_client_ip(request: Request) -> str:
@@ -53,11 +43,6 @@ def get_client_ip(request: Request) -> str:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
-RATE_LIMIT_REPLY = (
-    "Du hast zu viele Nachrichten in kurzer Zeit geschickt. "
-    "Bitte warte einen Moment und versuche es dann erneut."
-)
-
 # --- OpenAI Config ---
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -69,10 +54,6 @@ VECTOR_WEIGHT = float(os.getenv("VECTOR_WEIGHT", "0.7"))
 BM25_WEIGHT = 1 - VECTOR_WEIGHT
 CANDIDATE_POOL = int(os.getenv("CANDIDATE_POOL", "20"))
 
-# --- Thresholds ---
-HIGH_CONFIDENCE = 0.75
-LOW_CONFIDENCE = 0.55
-
 # --- Logging ---
 LOG_FILE = os.getenv("LOG_FILE", "./logs/chat_log.jsonl")
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
@@ -83,9 +64,6 @@ def log_interaction(entry: dict):
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception as e:
         print(f"Logging failed: {e}")
-
-def generate_message_id():
-    return f"msg_{int(time.time() * 1000)}"
 
 # --- ChromaDB ---
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
@@ -143,28 +121,6 @@ async def lti_launch(request: Request):
     return FileResponse("index.html")
 
 # --- BM25 Index Setup ---
-GERMAN_STOPWORDS = {
-    "ich", "du", "er", "sie", "es", "wir", "ihr", "mein", "dein", "sein",
-    "und", "oder", "aber", "wenn", "weil", "dass", "als", "wie", "was",
-    "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen",
-    "einem", "einer", "ist", "sind", "war", "wird", "werden", "wurde",
-    "hat", "haben", "hatte", "kann", "können", "muss", "müssen", "soll",
-    "nicht", "auch", "noch", "schon", "sehr", "mehr", "nur", "von",
-    "mit", "für", "auf", "an", "in", "zu", "zum", "zur", "bei", "nach",
-    "über", "unter", "vor", "hinter", "zwischen", "durch", "aus", "bis",
-    "im", "am", "vom", "beim", "ins", "ans", "es", "man", "sich",
-    "hier", "dort", "da", "so", "dann", "denn", "mal", "doch", "ja",
-    "nein", "kein", "keine", "keinen", "einem", "dieses", "dieser",
-    "diese", "jeder", "jede", "jedes", "alle", "alles", "mich", "mir",
-    "dir", "ihm", "uns", "euch", "ihnen", "wo", "wer", "wann",
-    "warum", "welche", "welcher", "welches", "ob", "immer", "wieder",
-    "gibt", "gibt", "sollte", "sollten", "würde", "würden", "könnte",
-}
-
-def tokenize(text: str) -> list[str]:
-    words = re.findall(r'\w+', text.lower())
-    return [w for w in words if w not in GERMAN_STOPWORDS]
-
 def get_embedding(text: str) -> list[float]:
     response = openai_client.embeddings.create(model=EMBED_MODEL, input=text)
     return response.data[0].embedding
@@ -193,22 +149,7 @@ def rewrite_query(message: str, history: list[dict]) -> str:
     if not history:
         return message
 
-    needs_context_indicators = [
-        "dafür", "damit", "davon", "dazu", "darüber", "darum",
-        "das", "dies", "diese", "diesem", "diesen",
-        "er", "sie", "es", "ihm", "ihr",
-        "dort", "da", "hier",
-        "auch", "noch", "mehr", "weiter",
-        "und", "aber",
-    ]
-
-    msg_lower = message.lower().strip()
-    words = msg_lower.split()
-
-    if len(words) > 8 and not any(w in needs_context_indicators for w in words):
-        return message
-
-    if len(words) > 4 and not any(w in needs_context_indicators for w in words):
+    if not needs_rewrite(message, history):
         return message
 
     recent = history[-6:]
@@ -249,7 +190,7 @@ Umformulierte eigenständige Frage (NUR die Frage, keine Erklärung):"""
 # --- Retrieval ---
 class ChatRequest(BaseModel):
     message: str
-    history: Optional[list[dict]] = None
+    history: list[dict] | None = None
 
 def retrieve_context(question: str, n_results: int = 25):
     start = time.time()
@@ -310,51 +251,6 @@ def retrieve_context(question: str, n_results: int = 25):
     context = "\n\n".join(f"[{item['id']}] {item['original']}" for item in top)
     return context, debug_chunks, elapsed
 
-# --- LLM refusal detection ---
-LLM_REJECT_PHRASES = [
-    "ich kann dir nur bei fragen rund ums studium",
-    "nur bei fragen rund ums studium an der wiso",
-    "kann dir nur bei fragen",
-]
-
-def detect_llm_reject(reply: str) -> bool:
-    lower = reply.lower()
-    return any(phrase in lower for phrase in LLM_REJECT_PHRASES)
-
-# --- System prompt builder ---
-def build_system_prompt(mode: str, context: str, history: list[dict] = None) -> str:
-    history_block = ""
-    if history:
-        recent = history[-6:]
-        lines = []
-        for msg in recent:
-            role = "Student" if msg.get("role") == "user" else "Bot"
-            lines.append(f"{role}: {msg['content']}")
-        history_block = "\n\nGESPRACHSVERLAUF (fuer Kontext):\n" + "\n".join(lines)
-
-    prompt = (
-        f"Du bist der WiSo-Chatbot der FAU Erlangen-Nuernberg. Du hilfst Erstsemester-Studierenden, sich im Studium zurechtzufinden.\n\n"
-        f"MODUS: {mode}\n\n"
-        "MODUS-REGELN:\n"
-        "- ANSWER_WITH_CAUTION: Antworte kurz und fuege eine Rueckfrage hinzu, ob das die richtige Frage war.\n"
-        "- ANSWER: Antworte kurz und hilfreich.\n\n"
-        "DEIN WICHTIGSTES ZIEL:\n"
-        'Hilf Studierenden, die Info SELBST zu finden. Nenne immer die konkrete Quelle oder Anlaufstelle (z.B. "Homepage des Pruefungsamtes", "Campo", "StudOn", "MHB", "RRZE Website"). Nenne NIEMALS Chunk-IDs.\n\n'
-        "ANTWORT-REGELN:\n"
-        "- Antworte NUR mit Informationen aus den QUELLEN unten.\n"
-        '- Wenn die QUELLEN keine Antwort auf die Frage enthalten, sage IMMER: "Ich kann dir nur bei Fragen rund ums Studium an der WiSo helfen"\n'
-        "- Das gilt auch fuer Witze, Smalltalk, persoenliche Fragen, oder alles was nicht direkt mit dem WiSo-Studium zu tun hat.\n"
-        "- Erfinde NICHTS dazu. Keine eigenen Informationen, keine Vermutungen.\n"
-        "- Antworte auf Deutsch, kurz und freundlich (du-Form).\n"
-        "- Beachte den GESPRAECHSVERLAUF unten, um Rueckfragen und Bezuege richtig zu verstehen.\n\n"
-        "FORMAT:\n"
-        "1) Kurze Antwort (2-3 Saetze max)\n"
-        "2) Wo du das findest: [konkrete Quelle]"
-        f"{history_block}\n\n"
-        f"QUELLEN:\n{context}"
-    )
-    return prompt.strip()
-
 # --- Inspect endpoints ---
 @app.get("/inspect/chunks")
 def inspect_chunks():
@@ -391,7 +287,7 @@ class FeedbackRequest(BaseModel):
 @app.post("/feedback")
 def submit_feedback(req: FeedbackRequest):
     log_interaction({
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "type": "feedback",
         "message_id": req.message_id,
         "rating": req.rating,
@@ -406,9 +302,9 @@ def get_logs(limit: int = Query(default=100), mode: str = Query(default=None), f
             return {"logs": [], "total": 0}
 
         chat_logs = []
-        feedback_map = {}  # message_id -> rating
+        feedback_map = {}
 
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
+        with open(LOG_FILE, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -419,17 +315,14 @@ def get_logs(limit: int = Query(default=100), mode: str = Query(default=None), f
                 else:
                     chat_logs.append(entry)
 
-        # Attach feedback rating to chat logs
         for log in chat_logs:
             mid = log.get("message_id")
             if mid and mid in feedback_map:
                 log["feedback"] = feedback_map[mid]
 
-        # Filter by mode
         if mode:
             chat_logs = [l for l in chat_logs if l.get("mode") == mode]
 
-        # Filter by feedback
         if feedback == "up":
             chat_logs = [l for l in chat_logs if l.get("feedback") == "up"]
         elif feedback == "down":
@@ -449,7 +342,7 @@ def get_log_stats():
         if not os.path.exists(LOG_FILE):
             return {"total": 0}
         logs = []
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
+        with open(LOG_FILE, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:
@@ -512,7 +405,6 @@ def build_debug(debug_chunks, top_score, verdict, retrieval_ms, llm_ms=0, rewrit
 
 @app.post("/chat")
 def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False)):
-    # Rate limit check
     client_ip = get_client_ip(request)
     if not rate_limiter.is_allowed(client_ip):
         return JSONResponse(
@@ -532,12 +424,12 @@ def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False))
 
     if top_score < LOW_CONFIDENCE:
         reply = (
-            "Ich konnte leider keine passende Antwort in meiner FAQ finden.\n"
+            "Ich konnte leider keine passende Antwort in meinen Quellen finden.\n"
             "Versuche es mit einer anderen Formulierung oder einem anderen Stichwort, "
             "oder schau direkt in den Quellen nach."
         )
         log_interaction({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "message_id": message_id,
             "question": req.message, "rewritten_query": rewritten,
             "reply": reply, "mode": "REJECT",
@@ -569,7 +461,7 @@ def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False))
     actual_mode = "LLM_REJECT" if detect_llm_reject(reply) else mode
 
     log_interaction({
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "message_id": message_id,
         "question": req.message, "rewritten_query": rewritten,
         "reply": reply, "mode": actual_mode,
@@ -591,7 +483,6 @@ def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False))
 # --- Streaming Chat (SSE) ---
 @app.post("/chat/stream")
 def chat_stream(req: ChatRequest, request: Request):
-    # Rate limit check
     client_ip = get_client_ip(request)
     if not rate_limiter.is_allowed(client_ip):
         def rate_limited():
@@ -621,7 +512,7 @@ def chat_stream(req: ChatRequest, request: Request):
 
         if top_score < LOW_CONFIDENCE:
             reply = (
-                "Ich konnte leider keine passende Antwort in meiner FAQ finden.\n"
+                "Ich konnte leider keine passende Antwort in meinen Quellen finden.\n"
                 "Versuche es mit einer anderen Formulierung oder einem anderen Stichwort, "
                 "oder schau direkt in den Quellen nach."
             )
@@ -629,7 +520,7 @@ def chat_stream(req: ChatRequest, request: Request):
             yield f"data: {json.dumps({'type': 'done', 'mode': 'REJECT', 'message_id': message_id})}\n\n"
 
             log_interaction({
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "message_id": message_id,
                 "question": req.message, "rewritten_query": rewritten,
                 "reply": reply, "mode": "REJECT",
@@ -667,7 +558,7 @@ def chat_stream(req: ChatRequest, request: Request):
         yield f"data: {json.dumps({'type': 'done', 'mode': actual_mode, 'llm_ms': llm_ms, 'message_id': message_id})}\n\n"
 
         log_interaction({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "message_id": message_id,
             "question": req.message, "rewritten_query": rewritten,
             "reply": full_reply, "mode": actual_mode,

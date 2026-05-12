@@ -10,10 +10,10 @@ Usage:
 Output: eval_results/eval_YYYY-MM-DD_HH-MM.json
 """
 
-import json
-import time
 import argparse
+import json
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -34,7 +34,7 @@ def load_questions_from_logs(log_file="logs/chat_log.jsonl"):
     questions = []
     seen = set()
     try:
-        with open(log_file, "r", encoding="utf-8") as f:
+        with open(log_file, encoding="utf-8") as f:
             for line in f:
                 entry = json.loads(line.strip())
                 q = entry["question"].strip().lower()
@@ -53,7 +53,7 @@ def load_questions_from_logs(log_file="logs/chat_log.jsonl"):
 
 def load_questions_from_file(filepath):
     """Load test questions from a JSON file."""
-    with open(filepath, "r", encoding="utf-8") as f:
+    with open(filepath, encoding="utf-8") as f:
         data = json.load(f)
     questions = []
     for item in data:
@@ -174,7 +174,7 @@ def evaluate(questions: list, api_base: str) -> dict:
     }
 
     print(f"\n{'='*70}")
-    print(f"  RESULTS SUMMARY")
+    print("  RESULTS SUMMARY")
     print(f"{'='*70}")
     print(f"  Questions:    {summary['total_questions']}")
     print(f"  Avg Score:    {summary['avg_score']:.3f} ({summary['avg_score']*100:.0f}%)")
@@ -190,7 +190,7 @@ def evaluate(questions: list, api_base: str) -> dict:
         print(f"  🔄 Mode changes: {len(mode_changes)}")
 
         if regressed:
-            print(f"\n  ⚠️  REGRESSIONS:")
+            print("\n  ⚠️  REGRESSIONS:")
             for r in regressed:
                 print(f"    • \"{r['question'][:50]}\" {r['previous_score']:.3f} → {r['top_score']:.3f} ({r['score_delta']:+.3f})")
 

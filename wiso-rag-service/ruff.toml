@@ -1,0 +1,21 @@
+line-length = 120
+target-version = "py313"
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "F841",  # unused variable (sometimes intentional)
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["E711"]  # allow == None in tests for clarity
+
+[format]
+quote-style = "double"

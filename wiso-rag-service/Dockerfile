@@ -22,6 +22,10 @@ COPY ingest.py .
 COPY index.html .
 COPY inspector.html .
 COPY analytics.html .
+
+# Copy test files
+COPY utils.py .
+
 RUN mkdir -p /app/chroma_db
 
 EXPOSE 8000
