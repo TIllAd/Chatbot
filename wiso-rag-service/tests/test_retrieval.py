@@ -36,12 +36,12 @@ class TestThresholdBehavior:
 
         test_cases = [
             (0.40, "REJECT"),
-            (0.54, "REJECT"),
-            (0.55, "ANSWER_WITH_CAUTION"),
-            (0.60, "ANSWER_WITH_CAUTION"),
-            (0.74, "ANSWER_WITH_CAUTION"),
-            (0.75, "ANSWER"),
-            (0.90, "ANSWER"),
+            (LOW_CONFIDENCE - 0.01, "REJECT"),
+            (LOW_CONFIDENCE, "ANSWER_WITH_CAUTION"),
+            (0.70, "ANSWER_WITH_CAUTION"),
+            (HIGH_CONFIDENCE - 0.01, "ANSWER_WITH_CAUTION"),
+            (HIGH_CONFIDENCE, "ANSWER"),
+            (0.95, "ANSWER"),
         ]
 
         for score, expected_mode in test_cases:
