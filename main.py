@@ -458,7 +458,7 @@ def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False))
     llm_ms = int((time.time() - llm_start) * 1000)
     reply = response.choices[0].message.content
 
-    actual_mode = "LLM_REJECT" if detect_llm_reject(reply) else mode
+    actual_mode = detect_llm_reject(reply) or mode
 
     log_interaction({
         "timestamp": datetime.now(UTC).isoformat(),
@@ -553,7 +553,8 @@ def chat_stream(req: ChatRequest, request: Request):
                 yield f"data: {json.dumps({'type': 'token', 'content': delta.content})}\n\n"
 
         llm_ms = int((time.time() - llm_start) * 1000)
-        actual_mode = "LLM_REJECT" if detect_llm_reject(full_reply) else mode
+        actual_mode = detect_llm_reject(full_reply) or mode
+
 
         yield f"data: {json.dumps({'type': 'done', 'mode': actual_mode, 'llm_ms': llm_ms, 'message_id': message_id})}\n\n"
 

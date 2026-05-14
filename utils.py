@@ -53,9 +53,20 @@ LLM_REJECT_PHRASES = [
     "kann dir nur bei fragen",
 ]
 
-def detect_llm_reject(reply: str) -> bool:
+LLM_MISSING_INFO_PHRASES = [
+    "dazu habe ich leider keine info",
+    "keine info in meinen quellen",
+    "schau am besten auf der wiso-website",
+]
+
+def detect_llm_reject(reply: str) -> str | None:
+    """Returns 'LLM_REJECT' for off-topic, 'LLM_MISSING_INFO' for no-data, or None for normal answers."""
     lower = reply.lower()
-    return any(phrase in lower for phrase in LLM_REJECT_PHRASES)
+    if any(phrase in lower for phrase in LLM_REJECT_PHRASES):
+        return "LLM_REJECT"
+    if any(phrase in lower for phrase in LLM_MISSING_INFO_PHRASES):
+        return "LLM_MISSING_INFO"
+    return None
 
 
 # --- Rate Limiter ---
@@ -104,11 +115,18 @@ def build_system_prompt(mode: str, context: str, history: list[dict] = None) -> 
         'Hilf Studierenden, die Info SELBST zu finden. Nenne immer die konkrete Quelle oder Anlaufstelle (z.B. "Homepage des Pruefungsamtes", "Campo", "StudOn", "MHB", "RRZE Website"). Nenne NIEMALS Chunk-IDs.\n\n'
         "ANTWORT-REGELN:\n"
         "- Antworte NUR mit Informationen aus den QUELLEN unten.\n"
-        '- Wenn die QUELLEN keine Antwort auf die Frage enthalten, sage IMMER: "Ich kann dir nur bei Fragen rund ums Studium an der WiSo helfen"\n'
-        "- Das gilt auch fuer Witze, Smalltalk, persoenliche Fragen, oder alles was nicht direkt mit dem WiSo-Studium zu tun hat.\n"
         "- Erfinde NICHTS dazu. Keine eigenen Informationen, keine Vermutungen.\n"
         "- Antworte auf Deutsch, kurz und freundlich (du-Form).\n"
         "- Beachte den GESPRAECHSVERLAUF unten, um Rueckfragen und Bezuege richtig zu verstehen.\n\n"
+        "WENN DIE QUELLEN NICHT AUSREICHEN:\n"
+        "- Wenn die Frage zum Studium gehoert aber die QUELLEN keine Antwort enthalten: "
+        'Sage: "Dazu habe ich leider keine Info in meinen Quellen. Schau am besten auf der WiSo-Website oder frag die Studienberatung."\n'
+        "- Wenn die Frage NICHTS mit dem Studium zu tun hat (Witze, Wetter, Politik, Smalltalk, persoenliche Fragen): "
+        '"Ich kann dir nur bei Fragen rund ums Studium an der WiSo helfen"\n\n'
+        "STUDIEN-RELEVANTE THEMEN (auch ohne Quellen als Studienfrage erkennen):\n"
+        "Semesterzeiten, Vorlesungsbeginn, Wintersemester, Sommersemester, Semesterbeitrag, Semesterticket, "
+        "Bibliothek, Mensa, Wohnheim, Auslandssemester, Erasmus, Praktikum, Werkstudent, BAfoeg, "
+        "Studienberatung, Pruefungsamt, Campo, StudOn, RRZE, FAU, WiSo\n\n"
         "FORMAT:\n"
         "1) Kurze Antwort (2-3 Saetze max)\n"
         "2) Wo du das findest: [konkrete Quelle]"
