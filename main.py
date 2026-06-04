@@ -72,9 +72,7 @@ def log_interaction(entry: dict):
 
 # --- ChromaDB ---
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
-collection = chroma_client.get_or_create_collection(
-    "faq", metadata={"hnsw:space": "cosine"}
-)
+collection = chroma_client.get_or_create_collection("faq", metadata={"hnsw:space": "cosine"})
 
 
 # --- Routes ---
