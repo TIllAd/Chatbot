@@ -1,0 +1,50 @@
+@"
+# ── Python ──────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# ── Environment & Secrets ────────────────
+.env
+
+# ── Datenbank & Logs ────────────────────
+chroma_db/
+logs/
+eval_results/
+
+# ── Daten (werden lokal gehalten) ────────
+data/
+*.docx
+*.pdf
+
+# ── Test & Lint Cache ────────────────────
+.pytest_cache/
+.ruff_cache/
+
+# ── Editor ───────────────────────────────
+.vscode/
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# ── Word Lock-Dateien ────────────────────
+~$*
+
+# ── Spring Boot Reste (nicht mehr nötig) ─
+HELP.md
+.gradle/
+build/
+bin/
+src/
+gradle/
+gradlew
+gradlew.bat
+.classpath
+.project
+.settings/
+nbproject/
+tests(old)/
+"@ | Out-File -FilePath .gitignore -Encoding utf8
