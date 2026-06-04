@@ -169,11 +169,11 @@ def run_eval(url: str, verbose: bool = False) -> dict:
     results = []
     passed = 0
 
-    print(f"\nRunning {len(dataset)} eval cases...\n{'='*60}")
+    print(f"\nRunning {len(dataset)} eval cases...\n{'=' * 60}")
 
     for i, case in enumerate(dataset):
         question = case["question"]
-        print(f"[{i+1}/{len(dataset)}] {question[:70]}")
+        print(f"[{i + 1}/{len(dataset)}] {question[:70]}")
 
         start = time.time()
         result = ask(url, question)
@@ -193,7 +193,7 @@ def run_eval(url: str, verbose: bool = False) -> dict:
     total = len(dataset)
     pass_rate = passed / total if total > 0 else 0
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Results: {passed}/{total} passed ({pass_rate:.1%})")
 
     # Summary of failures
@@ -209,7 +209,7 @@ def run_eval(url: str, verbose: bool = False) -> dict:
     # Avg scores
     scores = [r["top_score"] for r in results if r["top_score"] > 0]
     if scores:
-        print(f"\nAvg top_score: {sum(scores)/len(scores):.3f}")
+        print(f"\nAvg top_score: {sum(scores) / len(scores):.3f}")
 
     summary = {
         "passed": passed,
