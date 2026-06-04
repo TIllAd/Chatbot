@@ -44,6 +44,8 @@ jobs:
     name: "2. Tests"
     runs-on: ubuntu-latest
     needs: code-quality
+    env: 
+      OPENAI_API_KEY: sk-test-dummy # dummy variable
     steps:
       - uses: actions/checkout@v4
 
