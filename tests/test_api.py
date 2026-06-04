@@ -8,6 +8,27 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+
+def make_client(log_file=None):
+    """Helper: create TestClient with BM25 mocked, optional log file override."""
+    import main
+
+    mock_bm25 = MagicMock()
+    mock_bm25.get_scores.return_value = [0.5]
+
+    main.bm25_index = mock_bm25
+    main.all_ids = ["chunk_0"]
+    main.all_texts = ["test doc"]
+    main.all_originals = ["test doc"]
+
+    if log_file:
+        main.LOG_FILE = str(log_file)
+
+    from fastapi.testclient import TestClient
+
+    return TestClient(main.app)
+
+
 # ─── Static Endpoint Tests ──────────────────────────────────
 
 
@@ -16,24 +37,7 @@ class TestStaticEndpoints:
 
     @pytest.fixture(autouse=True)
     def setup_client(self):
-        """Create TestClient with mocked ChromaDB."""
-        with patch("chromadb.PersistentClient") as mock_chroma:
-            # Mock the collection
-            mock_collection = MagicMock()
-            mock_collection.get.return_value = {
-                "ids": ["chunk_0"],
-                "documents": ["test doc"],
-                "metadatas": [{"original_text": "test doc", "keywords": "test"}],
-            }
-            mock_chroma.return_value.get_collection.return_value = mock_collection
-
-            # Mock BM25 to avoid import-time errors
-            with patch("main.build_bm25_index", return_value=(MagicMock(), ["chunk_0"], ["test doc"], ["test doc"])):
-                from fastapi.testclient import TestClient
-
-                from main import app
-
-                self.client = TestClient(app)
+        self.client = make_client()
 
     def test_root_returns_html(self):
         res = self.client.get("/")
@@ -62,30 +66,13 @@ class TestStaticEndpoints:
 class TestLogsEndpoints:
     @pytest.fixture(autouse=True)
     def setup_client(self, tmp_path):
-        """Create TestClient with a temp log file."""
-        log_file = tmp_path / "test_log.jsonl"
-        log_file.write_text(
+        self.log_file = tmp_path / "test_log.jsonl"
+        self.log_file.write_text(
             '{"timestamp":"2026-01-01T00:00:00","question":"test","reply":"answer","mode":"ANSWER","top_score":0.85,"retrieval_ms":100,"llm_ms":500}\n'
             '{"timestamp":"2026-01-01T00:01:00","question":"joke","reply":"rejected","mode":"REJECT","top_score":0.3,"retrieval_ms":50,"llm_ms":0}\n'
             '{"timestamp":"2026-01-01T00:02:00","type":"feedback","message_id":"msg_123","rating":"up"}\n'
         )
-
-        with patch("chromadb.PersistentClient") as mock_chroma:
-            mock_collection = MagicMock()
-            mock_collection.get.return_value = {
-                "ids": ["chunk_0"],
-                "documents": ["test doc"],
-                "metadatas": [{"original_text": "test doc", "keywords": "test"}],
-            }
-            mock_chroma.return_value.get_collection.return_value = mock_collection
-
-            with patch("main.build_bm25_index", return_value=(MagicMock(), ["chunk_0"], ["test doc"], ["test doc"])):
-                with patch("main.LOG_FILE", str(log_file)):
-                    from fastapi.testclient import TestClient
-
-                    from main import app
-
-                    self.client = TestClient(app)
+        self.client = make_client(log_file=self.log_file)
 
     def test_logs_returns_list(self):
         res = self.client.get("/logs")
@@ -130,26 +117,9 @@ class TestLogsEndpoints:
 class TestFeedbackEndpoint:
     @pytest.fixture(autouse=True)
     def setup_client(self, tmp_path):
-        log_file = tmp_path / "test_log.jsonl"
-        log_file.write_text("")
-
-        with patch("chromadb.PersistentClient") as mock_chroma:
-            mock_collection = MagicMock()
-            mock_collection.get.return_value = {
-                "ids": ["chunk_0"],
-                "documents": ["test doc"],
-                "metadatas": [{"original_text": "test doc", "keywords": "test"}],
-            }
-            mock_chroma.return_value.get_collection.return_value = mock_collection
-
-            with patch("main.build_bm25_index", return_value=(MagicMock(), ["chunk_0"], ["test doc"], ["test doc"])):
-                with patch("main.LOG_FILE", str(log_file)):
-                    from fastapi.testclient import TestClient
-
-                    from main import app
-
-                    self.client = TestClient(app)
-                    self.log_file = log_file
+        self.log_file = tmp_path / "test_log.jsonl"
+        self.log_file.write_text("")
+        self.client = make_client(log_file=self.log_file)
 
     def test_feedback_up(self):
         res = self.client.post("/feedback", json={"message_id": "msg_123", "rating": "up"})
@@ -171,30 +141,15 @@ class TestFeedbackEndpoint:
 
 
 class TestChatEndpointStructure:
-    """Test that chat endpoints accept the right input format.
-    Actual responses need OpenAI, so we just test input validation."""
+    """Test that chat endpoints accept the right input format."""
 
     @pytest.fixture(autouse=True)
     def setup_client(self):
-        with patch("chromadb.PersistentClient") as mock_chroma:
-            mock_collection = MagicMock()
-            mock_collection.get.return_value = {
-                "ids": ["chunk_0"],
-                "documents": ["test doc"],
-                "metadatas": [{"original_text": "test doc", "keywords": "test"}],
-            }
-            mock_chroma.return_value.get_collection.return_value = mock_collection
-
-            with patch("main.build_bm25_index", return_value=(MagicMock(), ["chunk_0"], ["test doc"], ["test doc"])):
-                from fastapi.testclient import TestClient
-
-                from main import app
-
-                self.client = TestClient(app)
+        self.client = make_client()
 
     def test_chat_rejects_empty_body(self):
         res = self.client.post("/chat", json={})
-        assert res.status_code == 422  # Validation error
+        assert res.status_code == 422
 
     def test_chat_stream_rejects_empty_body(self):
         res = self.client.post("/chat/stream", json={})
