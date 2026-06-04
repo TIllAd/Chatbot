@@ -16,6 +16,7 @@ ignore = [
 
 [lint.per-file-ignores]
 "tests/*" = ["E711"]  # allow == None in tests for clarity
+"main.py" = ["E402"]  # load_dotenv() must run before third-party imports
 
 [format]
 quote-style = "double"

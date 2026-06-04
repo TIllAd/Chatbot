@@ -4,12 +4,14 @@ Tests threshold behavior, off-topic handling, and prompt logic.
 Imports from utils.py only — no ChromaDB or OpenAI needed.
 """
 
-import pytest
 from utils import (
-    detect_llm_reject, build_system_prompt, needs_rewrite,
-    HIGH_CONFIDENCE, LOW_CONFIDENCE, RATE_LIMIT_REPLY,
+    HIGH_CONFIDENCE,
+    LOW_CONFIDENCE,
+    RATE_LIMIT_REPLY,
+    build_system_prompt,
+    detect_llm_reject,
+    needs_rewrite,
 )
-
 
 # ─── Threshold Behavior Tests ───────────────────────────────
 

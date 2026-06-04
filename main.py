@@ -2,7 +2,9 @@ import json
 import os
 import time
 from datetime import UTC, datetime
+
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import chromadb
@@ -15,16 +17,15 @@ from pydantic import BaseModel
 from rank_bm25 import BM25Okapi
 
 from utils import (
-    tokenize,
-    detect_llm_reject,
-    RateLimiter,
-    generate_message_id,
-    build_system_prompt,
-    needs_rewrite,
-    RATE_LIMIT_REPLY,
     HIGH_CONFIDENCE,
     LOW_CONFIDENCE,
-    NEEDS_CONTEXT_INDICATORS,
+    RATE_LIMIT_REPLY,
+    RateLimiter,
+    build_system_prompt,
+    detect_llm_reject,
+    generate_message_id,
+    needs_rewrite,
+    tokenize,
 )
 
 app = FastAPI()
@@ -32,6 +33,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 # --- Rate Limiting ---
 rate_limiter = RateLimiter()
+
 
 def get_client_ip(request: Request) -> str:
     """Get client IP, respecting Cloudflare headers."""
@@ -42,6 +44,7 @@ def get_client_ip(request: Request) -> str:
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
 
 # --- OpenAI Config ---
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -58,12 +61,14 @@ CANDIDATE_POOL = int(os.getenv("CANDIDATE_POOL", "20"))
 LOG_FILE = os.getenv("LOG_FILE", "./logs/chat_log.jsonl")
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 
+
 def log_interaction(entry: dict):
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception as e:
         print(f"Logging failed: {e}")
+
 
 # --- ChromaDB ---
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
@@ -74,21 +79,26 @@ collection = chroma_client.get_collection("faq")
 def serve_ui():
     return FileResponse("index.html")
 
+
 @app.get("/inspector")
 def serve_inspector():
     return FileResponse("inspector.html")
+
 
 @app.get("/analytics")
 def serve_analytics():
     return FileResponse("analytics.html")
 
+
 @app.get("/lti/launch")
 def lti_launch_get():
     return FileResponse("index.html")
 
+
 # --- LTI 1.1 Config ---
 LTI_CONSUMER_KEY = os.getenv("LTI_CONSUMER_KEY", "wiso-chatbot")
 LTI_SHARED_SECRET = os.getenv("LTI_SHARED_SECRET", "change-me-secret")
+
 
 class LTIRequestValidator(RequestValidator):
     @property
@@ -106,11 +116,13 @@ class LTIRequestValidator(RequestValidator):
         return LTI_SHARED_SECRET
 
     def validate_timestamp_and_nonce(self, client_key, timestamp, nonce,
-                                      request_token=None, access_token=None, request=None):
+                                     request_token=None, access_token=None, request=None):
         return True
+
 
 lti_validator = LTIRequestValidator()
 lti_endpoint = SignatureOnlyEndpoint(lti_validator)
+
 
 @app.post("/lti/launch")
 async def lti_launch(request: Request):
@@ -120,10 +132,12 @@ async def lti_launch(request: Request):
         return HTMLResponse("<h1>LTI Authentication Failed</h1>", status_code=403)
     return FileResponse("index.html")
 
+
 # --- BM25 Index Setup ---
 def get_embedding(text: str) -> list[float]:
     response = openai_client.embeddings.create(model=EMBED_MODEL, input=text)
     return response.data[0].embedding
+
 
 def build_bm25_index():
     all_docs = collection.get(include=["documents", "metadatas"])
@@ -137,12 +151,14 @@ def build_bm25_index():
     bm25 = BM25Okapi(tokenized)
     return bm25, doc_ids, doc_texts, doc_originals
 
+
 try:
     bm25_index, all_ids, all_texts, all_originals = build_bm25_index()
 except Exception as e:
     print("BM25 build failed:", e)
     bm25_index, all_ids, all_texts, all_originals = None, [], [], []
 print(f"BM25 index built with {len(all_ids)} chunks")
+
 
 # --- Query Rewriting ---
 def rewrite_query(message: str, history: list[dict]) -> str:
@@ -177,7 +193,7 @@ Aktuelle Frage: {message}
 Umformulierte eigenständige Frage (NUR die Frage, keine Erklärung):"""
             }],
             max_tokens=80,
-            temperature=0.0
+            temperature=0.0,
         )
         rewritten = response.choices[0].message.content.strip()
         rewritten = rewritten.strip('"').strip("'").strip("\u201E").strip("\u201C")
@@ -187,10 +203,12 @@ Umformulierte eigenständige Frage (NUR die Frage, keine Erklärung):"""
         print(f"  Query rewrite failed: {e}")
         return message
 
+
 # --- Retrieval ---
 class ChatRequest(BaseModel):
     message: str
     history: list[dict] | None = None
+
 
 def retrieve_context(question: str, n_results: int = 25):
     start = time.time()
@@ -199,7 +217,7 @@ def retrieve_context(question: str, n_results: int = 25):
     vector_results = collection.query(
         query_embeddings=[embedding],
         n_results=CANDIDATE_POOL,
-        include=["documents", "distances"]
+        include=["documents", "distances"],
     )
 
     vector_ids = vector_results["ids"][0]
@@ -230,7 +248,7 @@ def retrieve_context(question: str, n_results: int = 25):
         idx = all_ids.index(cid)
         combined.append({
             "id": cid, "vector_score": v_score, "bm25_score": b_score,
-            "combined_score": final, "document": all_texts[idx], "original": all_originals[idx]
+            "combined_score": final, "document": all_texts[idx], "original": all_originals[idx],
         })
 
     combined.sort(key=lambda x: x["combined_score"], reverse=True)
@@ -243,13 +261,14 @@ def retrieve_context(question: str, n_results: int = 25):
             "combined_score": item["combined_score"],
             "vector_score": item["vector_score"],
             "bm25_score": item["bm25_score"],
-            "preview": item["document"][:200] + "..." if len(item["document"]) > 200 else item["document"]
+            "preview": item["document"][:200] + "..." if len(item["document"]) > 200 else item["document"],
         }
         for i, item in enumerate(top)
     ]
 
     context = "\n\n".join(f"[{item['id']}] {item['original']}" for item in top)
     return context, debug_chunks, elapsed
+
 
 # --- Inspect endpoints ---
 @app.get("/inspect/chunks")
@@ -262,14 +281,16 @@ def inspect_chunks():
             "keywords": all_docs["metadatas"][i].get("keywords", ""),
             "source_file": all_docs["metadatas"][i].get("source_file", ""),
             "section": all_docs["metadatas"][i].get("section", ""),
-            "enriched": all_docs["documents"][i]
+            "enriched": all_docs["documents"][i],
         }
         for i in range(len(all_docs["ids"]))
     ]}
 
+
 class InspectSearchRequest(BaseModel):
     query: str
     n_results: int = 10
+
 
 @app.post("/inspect/search")
 def inspect_search(req: InspectSearchRequest):
@@ -279,10 +300,12 @@ def inspect_search(req: InspectSearchRequest):
         chunk["document"] = all_texts[idx]
     return {"results": debug_chunks, "elapsed_ms": elapsed, "query": req.query}
 
+
 # --- Feedback endpoint ---
 class FeedbackRequest(BaseModel):
     message_id: str
     rating: str  # "up" or "down"
+
 
 @app.post("/feedback")
 def submit_feedback(req: FeedbackRequest):
@@ -293,6 +316,7 @@ def submit_feedback(req: FeedbackRequest):
         "rating": req.rating,
     })
     return {"status": "ok"}
+
 
 # --- Logs endpoints ---
 @app.get("/logs")
@@ -321,20 +345,21 @@ def get_logs(limit: int = Query(default=100), mode: str = Query(default=None), f
                 log["feedback"] = feedback_map[mid]
 
         if mode:
-            chat_logs = [l for l in chat_logs if l.get("mode") == mode]
+            chat_logs = [lg for lg in chat_logs if lg.get("mode") == mode]
 
         if feedback == "up":
-            chat_logs = [l for l in chat_logs if l.get("feedback") == "up"]
+            chat_logs = [lg for lg in chat_logs if lg.get("feedback") == "up"]
         elif feedback == "down":
-            chat_logs = [l for l in chat_logs if l.get("feedback") == "down"]
+            chat_logs = [lg for lg in chat_logs if lg.get("feedback") == "down"]
         elif feedback == "none":
-            chat_logs = [l for l in chat_logs if not l.get("feedback")]
+            chat_logs = [lg for lg in chat_logs if not lg.get("feedback")]
 
         total = len(chat_logs)
         chat_logs = list(reversed(chat_logs))[:limit]
         return {"logs": chat_logs, "total": total}
     except Exception as e:
         return {"error": str(e)}
+
 
 @app.get("/logs/stats")
 def get_log_stats():
@@ -389,6 +414,7 @@ def get_log_stats():
     except Exception as e:
         return {"error": str(e)}
 
+
 # --- Chat (non-streaming, for eval/debug) ---
 def build_debug(debug_chunks, top_score, verdict, retrieval_ms, llm_ms=0, rewritten_query=None):
     d = {
@@ -397,11 +423,12 @@ def build_debug(debug_chunks, top_score, verdict, retrieval_ms, llm_ms=0, rewrit
         "retrieval_ms": retrieval_ms, "llm_ms": llm_ms,
         "model": MODEL, "embed_model": EMBED_MODEL,
         "search_mode": "hybrid", "vector_weight": VECTOR_WEIGHT,
-        "bm25_weight": BM25_WEIGHT, "mode": "N/A"
+        "bm25_weight": BM25_WEIGHT, "mode": "N/A",
     }
     if rewritten_query:
         d["rewritten_query"] = rewritten_query
     return d
+
 
 @app.post("/chat")
 def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False)):
@@ -409,7 +436,7 @@ def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False))
     if not rate_limiter.is_allowed(client_ip):
         return JSONResponse(
             status_code=429,
-            content={"reply": RATE_LIMIT_REPLY, "rate_limited": True}
+            content={"reply": RATE_LIMIT_REPLY, "rate_limited": True},
         )
 
     history = req.history or []
@@ -451,9 +478,9 @@ def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False))
         model=MODEL,
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": req.message}
+            {"role": "user", "content": req.message},
         ],
-        max_tokens=300, temperature=0.3
+        max_tokens=300, temperature=0.3,
     )
     llm_ms = int((time.time() - llm_start) * 1000)
     reply = response.choices[0].message.content
@@ -475,10 +502,11 @@ def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False))
         result["debug"] = build_debug(
             debug_chunks, top_score,
             "high confidence" if top_score >= HIGH_CONFIDENCE else "borderline",
-            retrieval_ms, llm_ms, rewritten_query=rewritten
+            retrieval_ms, llm_ms, rewritten_query=rewritten,
         )
         result["debug"]["mode"] = actual_mode
     return result
+
 
 # --- Streaming Chat (SSE) ---
 @app.post("/chat/stream")
@@ -518,7 +546,6 @@ def chat_stream(req: ChatRequest, request: Request):
             )
             yield f"data: {json.dumps({'type': 'token', 'content': reply})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'mode': 'REJECT', 'message_id': message_id})}\n\n"
-
             log_interaction({
                 "timestamp": datetime.now(UTC).isoformat(),
                 "message_id": message_id,
@@ -540,10 +567,10 @@ def chat_stream(req: ChatRequest, request: Request):
             model=MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": req.message}
+                {"role": "user", "content": req.message},
             ],
             max_tokens=300, temperature=0.3,
-            stream=True
+            stream=True,
         )
 
         for chunk in stream:
@@ -554,7 +581,6 @@ def chat_stream(req: ChatRequest, request: Request):
 
         llm_ms = int((time.time() - llm_start) * 1000)
         actual_mode = detect_llm_reject(full_reply) or mode
-
 
         yield f"data: {json.dumps({'type': 'done', 'mode': actual_mode, 'llm_ms': llm_ms, 'message_id': message_id})}\n\n"
 

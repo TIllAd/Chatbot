@@ -3,9 +3,9 @@ Pure utility functions for the WiSo Chatbot.
 No external service dependencies (no ChromaDB, no OpenAI) — safe to import anywhere.
 """
 
+import os
 import re
 import time
-import os
 from collections import defaultdict
 
 # --- Config (from env, with defaults) ---
@@ -59,8 +59,9 @@ LLM_MISSING_INFO_PHRASES = [
     "schau am besten auf der wiso-website",
 ]
 
+
 def detect_llm_reject(reply: str) -> str | None:
-    """Returns 'LLM_REJECT' for off-topic, 'LLM_MISSING_INFO' for no-data, or None for normal answers."""
+    """Returns 'LLM_REJECT' for off-topic, 'LLM_MISSING_INFO' for no-data, or None."""
     lower = reply.lower()
     if any(phrase in lower for phrase in LLM_REJECT_PHRASES):
         return "LLM_REJECT"
@@ -72,6 +73,7 @@ def detect_llm_reject(reply: str) -> str | None:
 # --- Rate Limiter ---
 class RateLimiter:
     """Simple in-memory IP-based rate limiter."""
+
     def __init__(self):
         self.requests = defaultdict(list)
 
@@ -120,7 +122,7 @@ def build_system_prompt(mode: str, context: str, history: list[dict] = None) -> 
         "- Beachte den GESPRAECHSVERLAUF unten, um Rueckfragen und Bezuege richtig zu verstehen.\n\n"
         "WENN DIE QUELLEN NICHT AUSREICHEN:\n"
         "- Wenn die Frage zum Studium gehoert aber die QUELLEN keine Antwort enthalten: "
-        'Sage: "Dazu habe ich leider keine Info in meinen Quellen. Schau am besten auf der WiSo-Website oder frag die Studienberatung."\n'
+        '"Dazu habe ich leider keine Info in meinen Quellen. Schau am besten auf der WiSo-Website oder frag die Studienberatung."\n'
         "- Wenn die Frage NICHTS mit dem Studium zu tun hat (Witze, Wetter, Politik, Smalltalk, persoenliche Fragen): "
         '"Ich kann dir nur bei Fragen rund ums Studium an der WiSo helfen"\n\n'
         "STUDIEN-RELEVANTE THEMEN (auch ohne Quellen als Studienfrage erkennen):\n"
@@ -145,6 +147,7 @@ NEEDS_CONTEXT_INDICATORS = [
     "auch", "noch", "mehr", "weiter",
     "und", "aber",
 ]
+
 
 def needs_rewrite(message: str, history: list[dict]) -> bool:
     """Check if a message likely needs query rewriting based on context indicators."""

@@ -4,15 +4,19 @@ Tests individual functions from utils.py — no ChromaDB or OpenAI needed.
 """
 
 import time
-import pytest
-from utils import (
-    tokenize, detect_llm_reject, RateLimiter, generate_message_id,
-    build_system_prompt, needs_rewrite,
-    HIGH_CONFIDENCE, LOW_CONFIDENCE, RATE_LIMIT_REPLY,
-    RATE_LIMIT_MAX, RATE_LIMIT_WINDOW,
-)
-import utils
 
+import utils
+from utils import (
+    HIGH_CONFIDENCE,
+    LOW_CONFIDENCE,
+    RATE_LIMIT_REPLY,
+    RateLimiter,
+    build_system_prompt,
+    detect_llm_reject,
+    generate_message_id,
+    needs_rewrite,
+    tokenize,
+)
 
 # ─── Tokenizer Tests ────────────────────────────────────────
 
@@ -139,7 +143,7 @@ class TestMessageId:
         ids = set()
         for _ in range(10):
             ids.add(generate_message_id())
-            time.sleep(0.002)  # ensure different timestamps
+            time.sleep(0.002)
         assert len(ids) >= 9
 
 
@@ -154,7 +158,6 @@ class TestNeedsRewrite:
         assert needs_rewrite("Wie kann ich mich für die Prüfungen im Wintersemester anmelden bitte", history) is False
 
     def test_short_without_indicators_no_rewrite(self):
-        # 5+ words without indicators = no rewrite
         history = [{"role": "user", "content": "hallo"}]
         assert needs_rewrite("Wann beginnt die Vorlesungszeit genau", history) is False
 

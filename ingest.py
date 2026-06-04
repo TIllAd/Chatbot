@@ -63,8 +63,6 @@ def clean_markdown(markdown: str) -> str:
 
         # Skip common PPTX metadata patterns
         if re.match(r'^\d{1,2}\.\s*(Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)\s*\d{4}$', stripped):
-            # Keep dates but only if they're part of content, not standalone
-            # For now skip standalone dates as they're usually slide footers
             continue
 
         cleaned.append(line)
@@ -87,14 +85,12 @@ def is_junk_chunk(text: str) -> bool:
     if len(words) < 8:
         return True
 
-    # Mostly just a heading with nothing else
-    lines = [l.strip() for l in text.strip().split("\n") if l.strip()]
-    non_heading_lines = [l for l in lines if not l.startswith("#")]
+    lines = [ln.strip() for ln in text.strip().split("\n") if ln.strip()]
+    non_heading_lines = [ln for ln in lines if not ln.startswith("#")]
     if len(non_heading_lines) < 1:
         return True
 
-    # Check if it's just a list of short fragments (common in PPTX title slides)
-    if all(len(l) < 30 for l in non_heading_lines) and len(non_heading_lines) < 3:
+    if all(len(ln) < 30 for ln in non_heading_lines) and len(non_heading_lines) < 3:
         return True
 
     return False
@@ -107,12 +103,8 @@ def chunk_markdown(markdown: str, source_file: str) -> list[dict]:
     Split Markdown into chunks by headings or double-newlines.
     Each chunk is a dict with 'text', 'source_file', 'section'.
     """
-    # Clean first
     markdown = clean_markdown(markdown)
-
     chunks = []
-
-    # Split on headings (##, ###, etc.)
     sections = re.split(r'\n(?=#{1,4}\s)', markdown)
 
     for section in sections:
@@ -140,7 +132,7 @@ def chunk_markdown(markdown: str, source_file: str) -> list[dict]:
                         chunks.append({
                             "text": current.strip(),
                             "source_file": source_file,
-                            "section": heading
+                            "section": heading,
                         })
                     current = part
                 else:
@@ -150,13 +142,13 @@ def chunk_markdown(markdown: str, source_file: str) -> list[dict]:
                 chunks.append({
                     "text": current.strip(),
                     "source_file": source_file,
-                    "section": heading
+                    "section": heading,
                 })
         else:
             chunks.append({
                 "text": section,
                 "source_file": source_file,
-                "section": heading
+                "section": heading,
             })
 
     return chunks
@@ -180,11 +172,12 @@ def chunk_faq_legacy(file_path: str) -> list[dict]:
     current_question = None
     current_answers = []
 
-    skip_headers = {"Fragensammlung", "Beispiel:", "Mögliche Frage",
-                "Mögliche Antwort", "Frage 1", "Frage 2", "Antwort",
-                "Frage?",
-                "FORMAT-REGELN", "NEUE EINTRÄGE HIER EINFÜGEN ↓",
-                "BEISPIELE (NICHT LÖSCHEN — FORMATREFERENZ)"}
+    skip_headers = {
+        "Fragensammlung", "Beispiel:", "Mögliche Frage", "Mögliche Antwort",
+        "Frage 1", "Frage 2", "Antwort", "Frage?",
+        "FORMAT-REGELN", "NEUE EINTRÄGE HIER EINFÜGEN ↓",
+        "BEISPIELE (NICHT LÖSCHEN — FORMATREFERENZ)",
+    }
 
     for line in lines:
         line = line.strip()
@@ -201,7 +194,7 @@ def chunk_faq_legacy(file_path: str) -> list[dict]:
                 chunks.append({
                     "text": chunk_text,
                     "source_file": Path(file_path).name,
-                    "section": current_question
+                    "section": current_question,
                 })
             current_question = line
             current_answers = []
@@ -218,13 +211,13 @@ def chunk_faq_legacy(file_path: str) -> list[dict]:
         chunks.append({
             "text": chunk_text,
             "source_file": Path(file_path).name,
-            "section": current_question
+            "section": current_question,
         })
 
     return chunks
 
 
-# ─── LLM-based chunk merging for PPTX ──────────────────────
+# ─── Chunk merging for PPTX ─────────────────────────────────
 
 def merge_slide_fragments(raw_chunks: list[dict], source_file: str) -> list[dict]:
     """
@@ -238,11 +231,11 @@ def merge_slide_fragments(raw_chunks: list[dict], source_file: str) -> list[dict
     current = raw_chunks[0].copy()
 
     for chunk in raw_chunks[1:]:
-        # If both are small and from the same source, merge
-        if (len(current["text"]) + len(chunk["text"]) < MAX_CHUNK_CHARS
-                and chunk["source_file"] == current["source_file"]):
+        if (
+            len(current["text"]) + len(chunk["text"]) < MAX_CHUNK_CHARS
+            and chunk["source_file"] == current["source_file"]
+        ):
             current["text"] += "\n\n" + chunk["text"]
-            # Keep the first heading, append the second if different
             if chunk["section"] and chunk["section"] != current["section"]:
                 current["section"] += " / " + chunk["section"]
         else:
@@ -273,7 +266,7 @@ Antworte NUR mit den Suchbegriffen, kommagetrennt. Keine Erklärung."""
             model=KEYWORD_MODEL,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=100,
-            temperature=0.3
+            temperature=0.3,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -297,8 +290,12 @@ def ingest():
         return
 
     # Collect all supported files
-    files = [f for f in data_dir.iterdir()
-             if f.suffix.lower() in SUPPORTED_EXTENSIONS and not f.name.startswith(".")]
+    files = [
+        f for f in data_dir.iterdir()
+        if f.suffix.lower() in SUPPORTED_EXTENSIONS
+        and not f.name.startswith(".")
+        and not f.name.startswith("~$")
+    ]
 
     if not files:
         print(f"No supported files found in {DATA_DIR}/")
@@ -310,12 +307,10 @@ def ingest():
         print(f"  • {f.name} ({f.stat().st_size / 1024:.0f} KB)")
     print()
 
-    # Parse and chunk all files
     all_chunks = []
     for file_path in sorted(files):
         print(f"📄 Processing: {file_path.name}")
 
-        # Try legacy FAQ format first for .docx files
         if file_path.suffix.lower() == ".docx":
             faq_chunks = chunk_faq_legacy(str(file_path))
             if faq_chunks:
@@ -323,24 +318,17 @@ def ingest():
                 all_chunks.extend(faq_chunks)
                 continue
 
-        # Default: Docling → Markdown → clean → chunk
         try:
             markdown = parse_file(str(file_path))
-
-            # Debug: show raw markdown preview
             print(f"  Raw markdown: {len(markdown)} chars")
-
             chunks = chunk_markdown(markdown, file_path.name)
 
-            # For PPTX: merge small slide fragments
             if file_path.suffix.lower() == ".pptx":
                 before = len(chunks)
                 chunks = merge_slide_fragments(chunks, file_path.name)
                 print(f"  Merged: {before} → {len(chunks)} chunks (slide fragment merging)")
 
             print(f"  → {len(chunks)} chunks")
-
-            # Preview chunks for this file
             for i, c in enumerate(chunks[:2]):
                 preview = c['text'][:120].replace('\n', ' ')
                 print(f"    [{i}] {preview}...")
@@ -359,14 +347,12 @@ def ingest():
         print("ERROR: No chunks extracted!")
         return
 
-    # Reset collection
     try:
         chroma_client.delete_collection("faq")
-    except:
+    except Exception:
         pass
     collection = chroma_client.create_collection("faq", metadata={"hnsw:space": "cosine"})
 
-    # Enrich, embed, store
     total_start = time.time()
 
     for i, chunk in enumerate(all_chunks):
@@ -388,8 +374,8 @@ def ingest():
                 "keywords": keywords,
                 "source_file": chunk["source_file"],
                 "section": chunk["section"],
-                "chunk_index": i
-            }]
+                "chunk_index": i,
+            }],
         )
 
         elapsed = time.time() - start
