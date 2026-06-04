@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WiSo Chatbot — Analytics</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
 <style>
   :root {
     --bg: #fafaf9; --surface: #ffffff; --border: #e7e5e4;
@@ -54,6 +55,8 @@
   .mode-answer { background: var(--green); }
   .mode-caution { background: var(--accent); }
   .mode-reject { background: var(--red); }
+  .mode-missing { background: var(--blue); }
+  .mode-llm-reject { background: var(--purple); }
 
   .mode-legend { display: flex; gap: 16px; flex-wrap: wrap; }
   .mode-legend-item { display: flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; padding: 4px 8px; border-radius: 8px; transition: all 0.15s; user-select: none; }
@@ -103,6 +106,7 @@
   .meta-mode.ANSWER_WITH_CAUTION { background: var(--accent-light); color: var(--accent-dark); }
   .meta-mode.REJECT { background: var(--red-light); color: var(--red); }
   .meta-mode.LLM_REJECT { background: var(--purple-light); color: var(--purple); }
+  .meta-mode.LLM_MISSING_INFO { background: var(--blue-light); color: var(--blue); }
   .meta-feedback { font-weight: 500; }
   .meta-feedback.fb-up { background: var(--green-light); color: var(--green); }
   .meta-feedback.fb-down { background: var(--red-light); color: var(--red); }
@@ -152,7 +156,7 @@ var API = '';
 var allLogs = [];
 var allStats = {};
 var activeFilter = null;
-var feedbackFilter = null; // null, 'up', 'down'
+var feedbackFilter = null;
 
 function loadDashboard() {
   var feedbackParam = feedbackFilter ? '&feedback=' + feedbackFilter : '';
@@ -197,7 +201,9 @@ function render() {
 }
 
 function renderStats(stats) {
-  var rejectCount = (stats.modes && stats.modes.REJECT) || 0;
+  var rejectCount = ((stats.modes && stats.modes.REJECT) || 0)
+    + ((stats.modes && stats.modes.LLM_REJECT) || 0)
+    + ((stats.modes && stats.modes.LLM_MISSING_INFO) || 0);
   var rejectPct = stats.total > 0 ? Math.round(rejectCount / stats.total * 100) : 0;
   var answerCount = ((stats.modes && stats.modes.ANSWER) || 0) + ((stats.modes && stats.modes.ANSWER_WITH_CAUTION) || 0);
 
@@ -222,7 +228,7 @@ function renderStats(stats) {
     '</div>' +
     '<div class="stat-card">' +
       '<div class="icon icon-reject">🚫</div>' +
-      '<div class="label">Abgelehnt</div>' +
+      '<div class="label">Nicht beantwortet</div>' +
       '<div class="value">' + rejectPct + '%</div>' +
       '<div class="sub">' + rejectCount + ' von ' + stats.total + ' Anfragen</div>' +
     '</div>' +
@@ -249,7 +255,8 @@ function renderContent(stats, logs, filtered) {
     'ANSWER': { emoji: '✅', label: 'Beantwortet', color: 'green' },
     'ANSWER_WITH_CAUTION': { emoji: '⚠️', label: 'Mit Rückfrage', color: 'accent' },
     'REJECT': { emoji: '🚫', label: 'Abgelehnt (Score)', color: 'red' },
-    'LLM_REJECT': { emoji: '🤖', label: 'Abgelehnt (LLM)', color: 'purple' }
+    'LLM_REJECT': { emoji: '🤖', label: 'Off-Topic (LLM)', color: 'purple' },
+    'LLM_MISSING_INFO': { emoji: '<i class="ti ti-help" style="font-size:14px;vertical-align:-1px;"></i>', label: 'FAQ-Lücke', color: 'blue' }
   };
 
   var scoreRanges = { '90-100%': 0, '80-89%': 0, '70-79%': 0, '60-69%': 0, '<60%': 0 };
@@ -267,6 +274,10 @@ function renderContent(stats, logs, filtered) {
   var answerPct = ((stats.modes && stats.modes.ANSWER) || 0) / total * 100;
   var cautionPct = ((stats.modes && stats.modes.ANSWER_WITH_CAUTION) || 0) / total * 100;
   var rejectPct = ((stats.modes && stats.modes.REJECT) || 0) / total * 100;
+  var llmRejectPct = ((stats.modes && stats.modes.LLM_REJECT) || 0) / total * 100;
+  var missingPct = stats.modes && stats.modes.LLM_MISSING_INFO
+  ? Math.max((stats.modes.LLM_MISSING_INFO / total * 100), 3)
+  : 0;
 
   var filterInfo = activeFilter ? modeLabels[activeFilter] : null;
 
@@ -274,18 +285,17 @@ function renderContent(stats, logs, filtered) {
   if (stats.modes && stats.modes.ANSWER) modeBarHtml += '<div class="mode-answer ' + (activeFilter && activeFilter !== 'ANSWER' ? 'dimmed' : '') + '" style="width:' + answerPct + '%" onclick="setFilter(\'ANSWER\')"><span class="bar-label">' + stats.modes.ANSWER + '</span></div>';
   if (stats.modes && stats.modes.ANSWER_WITH_CAUTION) modeBarHtml += '<div class="mode-caution ' + (activeFilter && activeFilter !== 'ANSWER_WITH_CAUTION' ? 'dimmed' : '') + '" style="width:' + cautionPct + '%" onclick="setFilter(\'ANSWER_WITH_CAUTION\')"><span class="bar-label">' + stats.modes.ANSWER_WITH_CAUTION + '</span></div>';
   if (stats.modes && stats.modes.REJECT) modeBarHtml += '<div class="mode-reject ' + (activeFilter && activeFilter !== 'REJECT' ? 'dimmed' : '') + '" style="width:' + rejectPct + '%" onclick="setFilter(\'REJECT\')"><span class="bar-label">' + stats.modes.REJECT + '</span></div>';
-  if (stats.modes && stats.modes.LLM_REJECT) {
-    var llmPct = (stats.modes.LLM_REJECT / total * 100);
-    modeBarHtml += '<div style="background:var(--purple);width:' + llmPct + '%" class="' + (activeFilter && activeFilter !== 'LLM_REJECT' ? 'dimmed' : '') + '" onclick="setFilter(\'LLM_REJECT\')"><span class="bar-label">' + stats.modes.LLM_REJECT + '</span></div>';
-  }
+  if (stats.modes && stats.modes.LLM_MISSING_INFO) modeBarHtml += '<div class="mode-missing ' + (activeFilter && activeFilter !== 'LLM_MISSING_INFO' ? 'dimmed' : '') + '" style="width:' + missingPct + '%" onclick="setFilter(\'LLM_MISSING_INFO\')"><span class="bar-label">' + stats.modes.LLM_MISSING_INFO + '</span></div>';
+  if (stats.modes && stats.modes.LLM_REJECT) modeBarHtml += '<div class="mode-llm-reject ' + (activeFilter && activeFilter !== 'LLM_REJECT' ? 'dimmed' : '') + '" style="width:' + llmRejectPct + '%" onclick="setFilter(\'LLM_REJECT\')"><span class="bar-label">' + stats.modes.LLM_REJECT + '</span></div>';
 
   var legendHtml = '';
   Object.keys(modeLabels).forEach(function(mode) {
     var info = modeLabels[mode];
     var count = (stats.modes && stats.modes[mode]) || 0;
     if (!count) return;
+    var colorMap = { green: '#16a34a', accent: '#f59e0b', red: '#dc2626', purple: '#7c3aed', blue: '#2563eb' };
     legendHtml += '<div class="mode-legend-item ' + (activeFilter === mode ? 'active' : '') + '" onclick="setFilter(\'' + mode + '\')">';
-    legendHtml += '<div class="dot" style="background:var(--' + info.color + ')"></div> ' + info.label + ' <span class="count">' + count + '</span>';
+    legendHtml += '<div class="dot" style="background:' + (colorMap[info.color] || '#888') + '"></div> ' + info.label + ' <span class="count">' + count + '</span>';
     legendHtml += '</div>';
   });
 
@@ -331,7 +341,7 @@ function renderContent(stats, logs, filtered) {
 
   var cardTitle = activeFilter && filterInfo ? filterInfo.emoji + ' ' + filterInfo.label + ' — Alle Fragen' : '💬 Alle Anfragen';
   var badgeStyle = activeFilter === 'REJECT' ? 'background:var(--red-light);color:var(--red)' : 'background:var(--green-light);color:var(--green)';
-  var badgeText = filtered.length + (activeFilter === 'REJECT' ? ' Luecken' : ' Anfragen');
+  var badgeText = filtered.length + (activeFilter === 'REJECT' ? ' Lücken' : ' Anfragen');
 
   document.getElementById('mainContent').innerHTML =
     '<div class="card"><div class="card-header"><h2>Antwort-Modi</h2><span class="badge" style="background:var(--blue-light);color:var(--blue);">' + stats.total + ' gesamt</span></div><div class="card-body"><div class="mode-bar">' + modeBarHtml + '</div><div class="mode-legend">' + legendHtml + '</div>' + filterHtml + '<div class="perf-grid"><div class="perf-item perf-retrieval"><div class="perf-value">' + stats.avg_retrieval_ms + 'ms</div><div class="perf-label">Ø Retrieval</div></div><div class="perf-item perf-llm"><div class="perf-value">' + stats.avg_llm_ms + 'ms</div><div class="perf-label">Ø LLM</div></div></div></div></div>' +
