@@ -34,7 +34,7 @@ jobs:
         run: |
           python -m py_compile main.py
           python -m py_compile ingest.py
-          python -m py_compile eval.py
+          python -m py_compile tests/eval.py
           echo "All files compile OK"
 
   # ─────────────────────────────────────────────
