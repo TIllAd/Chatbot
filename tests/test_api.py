@@ -4,7 +4,7 @@ Tests FastAPI endpoints using TestClient (no running server needed).
 Note: Chat endpoints need OpenAI + ChromaDB, so we test structure only.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
