@@ -20,6 +20,7 @@ from utils import (
 
 # ─── Tokenizer Tests ────────────────────────────────────────
 
+
 class TestTokenize:
     def test_basic_tokenization(self):
         tokens = tokenize("Wie melde ich mich für Prüfungen an")
@@ -51,6 +52,7 @@ class TestTokenize:
 
 # ─── LLM Reject Detection Tests ────────────────────────────
 
+
 class TestDetectLlmReject:
     def test_detects_standard_reject(self):
         assert detect_llm_reject("Ich kann dir nur bei Fragen rund ums Studium an der WiSo helfen") == "LLM_REJECT"
@@ -68,10 +70,16 @@ class TestDetectLlmReject:
         assert detect_llm_reject("ICH KANN DIR NUR BEI FRAGEN RUND UMS STUDIUM an der WiSo helfen") == "LLM_REJECT"
 
     def test_detects_missing_info(self):
-        assert detect_llm_reject("Dazu habe ich leider keine Info in meinen Quellen. Schau am besten auf der WiSo-Website.") == "LLM_MISSING_INFO"
+        assert (
+            detect_llm_reject(
+                "Dazu habe ich leider keine Info in meinen Quellen. Schau am besten auf der WiSo-Website."
+            )
+            == "LLM_MISSING_INFO"
+        )
 
 
 # ─── Rate Limiter Tests ─────────────────────────────────────
+
 
 class TestRateLimiter:
     def test_allows_under_limit(self):
@@ -133,6 +141,7 @@ class TestRateLimiter:
 
 # ─── Message ID Tests ───────────────────────────────────────
 
+
 class TestMessageId:
     def test_format(self):
         mid = generate_message_id()
@@ -148,6 +157,7 @@ class TestMessageId:
 
 
 # ─── Query Rewriting Trigger Tests ──────────────────────────
+
 
 class TestNeedsRewrite:
     def test_no_rewrite_without_history(self):
@@ -171,6 +181,7 @@ class TestNeedsRewrite:
 
 
 # ─── Threshold Logic Tests ──────────────────────────────────
+
 
 class TestThresholds:
     def test_low_confidence_value(self):
@@ -206,6 +217,7 @@ class TestThresholds:
 
 # ─── System Prompt Tests ────────────────────────────────────
 
+
 class TestSystemPrompt:
     def test_contains_mode(self):
         prompt = build_system_prompt("ANSWER", "context")
@@ -237,6 +249,7 @@ class TestSystemPrompt:
 
 
 # ─── Rate Limit Reply Tests ─────────────────────────────────
+
 
 class TestRateLimitReply:
     def test_is_german(self):

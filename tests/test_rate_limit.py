@@ -12,6 +12,7 @@ try:
     import requests
 except ImportError:
     import os
+
     os.system("pip install requests --break-system-packages -q")
     import requests
 
@@ -24,11 +25,7 @@ def test_rate_limit(api_base, total=25, expected_limit=20):
 
     for i in range(1, total + 1):
         try:
-            res = requests.post(
-                f"{api_base}/chat",
-                json={"message": "test"},
-                timeout=10
-            )
+            res = requests.post(f"{api_base}/chat", json={"message": "test"}, timeout=10)
             code = res.status_code
             if code == 200:
                 results["ok"] += 1

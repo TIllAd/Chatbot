@@ -15,6 +15,7 @@ from utils import (
 
 # ─── Threshold Behavior Tests ───────────────────────────────
 
+
 class TestThresholdBehavior:
     def test_below_low_confidence_is_reject(self):
         score = LOW_CONFIDENCE - 0.01
@@ -51,6 +52,7 @@ class TestThresholdBehavior:
 
 # ─── Off-Topic Detection Tests ──────────────────────────────
 
+
 class TestOffTopicDetection:
     def test_llm_reject_phrases_detected(self):
         off_topic_responses = [
@@ -77,6 +79,7 @@ class TestOffTopicDetection:
 
 # ─── Query Rewriting Trigger Logic ──────────────────────────
 
+
 class TestRewriteTriggerLogic:
     def test_no_trigger_without_history(self):
         assert needs_rewrite("Was sind ECTS?", []) is False
@@ -89,10 +92,13 @@ class TestRewriteTriggerLogic:
 
     def test_long_standalone_no_trigger(self):
         history = [{"role": "user", "content": "hallo"}]
-        assert needs_rewrite("Wie kann ich mich für die Prüfungen im nächsten Wintersemester anmelden", history) is False
+        assert (
+            needs_rewrite("Wie kann ich mich für die Prüfungen im nächsten Wintersemester anmelden", history) is False
+        )
 
 
 # ─── System Prompt Tests ────────────────────────────────────
+
 
 class TestSystemPrompt:
     def test_prompt_contains_mode(self):
@@ -126,6 +132,7 @@ class TestSystemPrompt:
 
 
 # ─── Reject Reply Tests ─────────────────────────────────────
+
 
 class TestRejectReply:
     def test_is_german(self):

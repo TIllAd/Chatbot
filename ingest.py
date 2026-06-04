@@ -18,7 +18,7 @@ EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
 KEYWORD_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 DATA_DIR = os.getenv("DATA_DIR", "./data")
 MAX_CHUNK_CHARS = 1500  # ~375 tokens
-MIN_CHUNK_CHARS = 100   # skip tiny/junk fragments
+MIN_CHUNK_CHARS = 100  # skip tiny/junk fragments
 
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
@@ -29,6 +29,7 @@ SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".html", ".md"}
 
 # ─── Parsing ────────────────────────────────────────────────
 
+
 def parse_file(file_path: str) -> str:
     """Convert any supported file to Markdown via Docling."""
     print("  Parsing with Docling...")
@@ -37,6 +38,7 @@ def parse_file(file_path: str) -> str:
 
 
 # ─── Cleaning ───────────────────────────────────────────────
+
 
 def clean_markdown(markdown: str) -> str:
     """
@@ -54,7 +56,7 @@ def clean_markdown(markdown: str) -> str:
             continue
 
         # Skip lines that are just numbers (page numbers, slide numbers)
-        if re.match(r'^\d{1,3}$', stripped):
+        if re.match(r"^\d{1,3}$", stripped):
             continue
 
         # Skip very short non-heading lines (likely footer/header junk)
@@ -62,7 +64,10 @@ def clean_markdown(markdown: str) -> str:
             continue
 
         # Skip common PPTX metadata patterns
-        if re.match(r'^\d{1,2}\.\s*(Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)\s*\d{4}$', stripped):
+        if re.match(
+            r"^\d{1,2}\.\s*(Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)\s*\d{4}$",
+            stripped,
+        ):
             continue
 
         cleaned.append(line)
@@ -76,7 +81,7 @@ def is_junk_chunk(text: str) -> bool:
     Returns True if the chunk should be skipped.
     """
     # Strip markdown formatting for analysis
-    plain = re.sub(r'#+ ', '', text).strip()
+    plain = re.sub(r"#+ ", "", text).strip()
 
     # Count "real" words (not just short tokens)
     words = [w for w in plain.split() if len(w) > 2]
@@ -98,6 +103,7 @@ def is_junk_chunk(text: str) -> bool:
 
 # ─── Chunking ───────────────────────────────────────────────
 
+
 def chunk_markdown(markdown: str, source_file: str) -> list[dict]:
     """
     Split Markdown into chunks by headings or double-newlines.
@@ -105,7 +111,7 @@ def chunk_markdown(markdown: str, source_file: str) -> list[dict]:
     """
     markdown = clean_markdown(markdown)
     chunks = []
-    sections = re.split(r'\n(?=#{1,4}\s)', markdown)
+    sections = re.split(r"\n(?=#{1,4}\s)", markdown)
 
     for section in sections:
         section = section.strip()
@@ -129,27 +135,33 @@ def chunk_markdown(markdown: str, source_file: str) -> list[dict]:
             for part in sub_parts:
                 if len(current) + len(part) > MAX_CHUNK_CHARS and current:
                     if not is_junk_chunk(current):
-                        chunks.append({
-                            "text": current.strip(),
-                            "source_file": source_file,
-                            "section": heading,
-                        })
+                        chunks.append(
+                            {
+                                "text": current.strip(),
+                                "source_file": source_file,
+                                "section": heading,
+                            }
+                        )
                     current = part
                 else:
                     current = current + "\n\n" + part if current else part
 
             if current.strip() and len(current.strip()) >= MIN_CHUNK_CHARS and not is_junk_chunk(current):
-                chunks.append({
-                    "text": current.strip(),
+                chunks.append(
+                    {
+                        "text": current.strip(),
+                        "source_file": source_file,
+                        "section": heading,
+                    }
+                )
+        else:
+            chunks.append(
+                {
+                    "text": section,
                     "source_file": source_file,
                     "section": heading,
-                })
-        else:
-            chunks.append({
-                "text": section,
-                "source_file": source_file,
-                "section": heading,
-            })
+                }
+            )
 
     return chunks
 
@@ -160,6 +172,7 @@ def chunk_faq_legacy(file_path: str) -> list[dict]:
     Falls back to this if a .docx file contains the --> pattern.
     """
     from docx import Document
+
     doc = Document(file_path)
     full_text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
 
@@ -173,9 +186,16 @@ def chunk_faq_legacy(file_path: str) -> list[dict]:
     current_answers = []
 
     skip_headers = {
-        "Fragensammlung", "Beispiel:", "Mögliche Frage", "Mögliche Antwort",
-        "Frage 1", "Frage 2", "Antwort", "Frage?",
-        "FORMAT-REGELN", "NEUE EINTRÄGE HIER EINFÜGEN ↓",
+        "Fragensammlung",
+        "Beispiel:",
+        "Mögliche Frage",
+        "Mögliche Antwort",
+        "Frage 1",
+        "Frage 2",
+        "Antwort",
+        "Frage?",
+        "FORMAT-REGELN",
+        "NEUE EINTRÄGE HIER EINFÜGEN ↓",
         "BEISPIELE (NICHT LÖSCHEN — FORMATREFERENZ)",
     }
 
@@ -191,11 +211,13 @@ def chunk_faq_legacy(file_path: str) -> list[dict]:
         elif "?" in line or line.endswith(":"):
             if current_question and current_answers:
                 chunk_text = f"{current_question}\n--> " + "\n--> ".join(current_answers)
-                chunks.append({
-                    "text": chunk_text,
-                    "source_file": Path(file_path).name,
-                    "section": current_question,
-                })
+                chunks.append(
+                    {
+                        "text": chunk_text,
+                        "source_file": Path(file_path).name,
+                        "section": current_question,
+                    }
+                )
             current_question = line
             current_answers = []
         else:
@@ -208,16 +230,19 @@ def chunk_faq_legacy(file_path: str) -> list[dict]:
 
     if current_question and current_answers:
         chunk_text = f"{current_question}\n--> " + "\n--> ".join(current_answers)
-        chunks.append({
-            "text": chunk_text,
-            "source_file": Path(file_path).name,
-            "section": current_question,
-        })
+        chunks.append(
+            {
+                "text": chunk_text,
+                "source_file": Path(file_path).name,
+                "section": current_question,
+            }
+        )
 
     return chunks
 
 
 # ─── Chunk merging for PPTX ─────────────────────────────────
+
 
 def merge_slide_fragments(raw_chunks: list[dict], source_file: str) -> list[dict]:
     """
@@ -251,6 +276,7 @@ def merge_slide_fragments(raw_chunks: list[dict], source_file: str) -> list[dict
 
 # ─── Enrichment ─────────────────────────────────────────────
 
+
 def generate_keywords(chunk_text: str) -> str:
     """Generate search keywords for a chunk via LLM."""
     prompt = f"""Analysiere diesen Text für Studierende und erstelle 3-5 deutsche Suchbegriffe/Synonyme,
@@ -282,6 +308,7 @@ def get_embedding(text: str) -> list[float]:
 
 # ─── Main ───────────────────────────────────────────────────
 
+
 def ingest():
     data_dir = Path(DATA_DIR)
     if not data_dir.exists():
@@ -291,10 +318,9 @@ def ingest():
 
     # Collect all supported files
     files = [
-        f for f in data_dir.iterdir()
-        if f.suffix.lower() in SUPPORTED_EXTENSIONS
-        and not f.name.startswith(".")
-        and not f.name.startswith("~$")
+        f
+        for f in data_dir.iterdir()
+        if f.suffix.lower() in SUPPORTED_EXTENSIONS and not f.name.startswith(".") and not f.name.startswith("~$")
     ]
 
     if not files:
@@ -330,18 +356,19 @@ def ingest():
 
             print(f"  → {len(chunks)} chunks")
             for i, c in enumerate(chunks[:2]):
-                preview = c['text'][:120].replace('\n', ' ')
+                preview = c["text"][:120].replace("\n", " ")
                 print(f"    [{i}] {preview}...")
 
             all_chunks.extend(chunks)
         except Exception as e:
             print(f"  ⚠ Failed to process: {e}")
             import traceback
+
             traceback.print_exc()
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Total: {len(all_chunks)} chunks from {len(files)} file(s)")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     if not all_chunks:
         print("ERROR: No chunks extracted!")
@@ -358,7 +385,7 @@ def ingest():
     for i, chunk in enumerate(all_chunks):
         start = time.time()
 
-        print(f"[{i+1}/{len(all_chunks)}] {chunk['source_file']} | Keywords...", end=" ")
+        print(f"[{i + 1}/{len(all_chunks)}] {chunk['source_file']} | Keywords...", end=" ")
         keywords = generate_keywords(chunk["text"])
         print(f"→ {keywords[:70]}{'...' if len(keywords) > 70 else ''}")
 
@@ -369,13 +396,15 @@ def ingest():
             ids=[f"chunk_{i}"],
             documents=[enriched],
             embeddings=[embedding],
-            metadatas=[{
-                "original_text": chunk["text"],
-                "keywords": keywords,
-                "source_file": chunk["source_file"],
-                "section": chunk["section"],
-                "chunk_index": i,
-            }],
+            metadatas=[
+                {
+                    "original_text": chunk["text"],
+                    "keywords": keywords,
+                    "source_file": chunk["source_file"],
+                    "section": chunk["section"],
+                    "chunk_index": i,
+                }
+            ],
         )
 
         elapsed = time.time() - start
@@ -384,7 +413,7 @@ def ingest():
 
     total = time.time() - total_start
     print(f"\nDone! {len(all_chunks)} chunks stored in {total:.1f}s")
-    print(f"Average: {total/len(all_chunks):.1f}s per chunk")
+    print(f"Average: {total / len(all_chunks):.1f}s per chunk")
 
 
 if __name__ == "__main__":

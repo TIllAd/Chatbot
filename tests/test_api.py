@@ -10,6 +10,7 @@ import pytest
 
 # ─── Static Endpoint Tests ──────────────────────────────────
 
+
 class TestStaticEndpoints:
     """Tests for endpoints that don't need ChromaDB or OpenAI."""
 
@@ -56,6 +57,7 @@ class TestStaticEndpoints:
 
 
 # ─── Logs Endpoint Tests ────────────────────────────────────
+
 
 class TestLogsEndpoints:
     @pytest.fixture(autouse=True)
@@ -124,6 +126,7 @@ class TestLogsEndpoints:
 
 # ─── Feedback Endpoint Tests ────────────────────────────────
 
+
 class TestFeedbackEndpoint:
     @pytest.fixture(autouse=True)
     def setup_client(self, tmp_path):
@@ -165,6 +168,7 @@ class TestFeedbackEndpoint:
 
 
 # ─── Chat Endpoint Structure Tests ──────────────────────────
+
 
 class TestChatEndpointStructure:
     """Test that chat endpoints accept the right input format.

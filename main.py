@@ -74,6 +74,7 @@ def log_interaction(entry: dict):
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_collection("faq")
 
+
 # --- Routes ---
 @app.get("/")
 def serve_ui():
@@ -115,8 +116,9 @@ class LTIRequestValidator(RequestValidator):
     def get_client_secret(self, client_key, request):
         return LTI_SHARED_SECRET
 
-    def validate_timestamp_and_nonce(self, client_key, timestamp, nonce,
-                                     request_token=None, access_token=None, request=None):
+    def validate_timestamp_and_nonce(
+        self, client_key, timestamp, nonce, request_token=None, access_token=None, request=None
+    ):
         return True
 
 
@@ -143,10 +145,7 @@ def build_bm25_index():
     all_docs = collection.get(include=["documents", "metadatas"])
     doc_ids = all_docs["ids"]
     doc_texts = all_docs["documents"]
-    doc_originals = [
-        m.get("original_text", doc_texts[i])
-        for i, m in enumerate(all_docs["metadatas"])
-    ]
+    doc_originals = [m.get("original_text", doc_texts[i]) for i, m in enumerate(all_docs["metadatas"])]
     tokenized = [tokenize(doc) for doc in doc_texts]
     bm25 = BM25Okapi(tokenized)
     return bm25, doc_ids, doc_texts, doc_originals
@@ -179,9 +178,10 @@ def rewrite_query(message: str, history: list[dict]) -> str:
     try:
         response = openai_client.chat.completions.create(
             model=MODEL,
-            messages=[{
-                "role": "user",
-                "content": f"""Formuliere die letzte Frage als eigenständige Frage um, basierend auf dem Gesprächsverlauf.
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"""Formuliere die letzte Frage als eigenständige Frage um, basierend auf dem Gesprächsverlauf.
 Ersetze alle Pronomen und Verweise (dafür, damit, das, dort, etc.) durch die konkreten Begriffe.
 Wenn die Frage bereits eigenständig verständlich ist, gib sie unverändert zurück.
 
@@ -190,13 +190,14 @@ Gesprächsverlauf:
 
 Aktuelle Frage: {message}
 
-Umformulierte eigenständige Frage (NUR die Frage, keine Erklärung):"""
-            }],
+Umformulierte eigenständige Frage (NUR die Frage, keine Erklärung):""",
+                }
+            ],
             max_tokens=80,
             temperature=0.0,
         )
         rewritten = response.choices[0].message.content.strip()
-        rewritten = rewritten.strip('"').strip("'").strip("\u201E").strip("\u201C")
+        rewritten = rewritten.strip('"').strip("'").strip("\u201e").strip("\u201c")
         print(f"  Query rewrite: '{message}' -> '{rewritten}'")
         return rewritten
     except Exception as e:
@@ -222,23 +223,15 @@ def retrieve_context(question: str, n_results: int = 25):
 
     vector_ids = vector_results["ids"][0]
     vector_distances = vector_results["distances"][0]
-    vector_scores = {
-        vid: round(1 - (d / 2), 4)
-        for vid, d in zip(vector_ids, vector_distances)
-    }
+    vector_scores = {vid: round(1 - (d / 2), 4) for vid, d in zip(vector_ids, vector_distances)}
 
     query_tokens = tokenize(question)
     bm25_raw_scores = bm25_index.get_scores(query_tokens)
 
     max_bm25 = max(bm25_raw_scores) if max(bm25_raw_scores) > 0 else 1
-    bm25_scores = {
-        all_ids[i]: round(bm25_raw_scores[i] / max_bm25, 4)
-        for i in range(len(all_ids))
-    }
+    bm25_scores = {all_ids[i]: round(bm25_raw_scores[i] / max_bm25, 4) for i in range(len(all_ids))}
 
-    candidate_ids = set(vector_ids) | {
-        all_ids[i] for i, s in enumerate(bm25_raw_scores) if s > 0
-    }
+    candidate_ids = set(vector_ids) | {all_ids[i] for i, s in enumerate(bm25_raw_scores) if s > 0}
 
     combined = []
     for cid in candidate_ids:
@@ -246,10 +239,16 @@ def retrieve_context(question: str, n_results: int = 25):
         b_score = bm25_scores.get(cid, 0)
         final = round(VECTOR_WEIGHT * v_score + BM25_WEIGHT * b_score, 4)
         idx = all_ids.index(cid)
-        combined.append({
-            "id": cid, "vector_score": v_score, "bm25_score": b_score,
-            "combined_score": final, "document": all_texts[idx], "original": all_originals[idx],
-        })
+        combined.append(
+            {
+                "id": cid,
+                "vector_score": v_score,
+                "bm25_score": b_score,
+                "combined_score": final,
+                "document": all_texts[idx],
+                "original": all_originals[idx],
+            }
+        )
 
     combined.sort(key=lambda x: x["combined_score"], reverse=True)
     top = combined[:n_results]
@@ -257,7 +256,8 @@ def retrieve_context(question: str, n_results: int = 25):
 
     debug_chunks = [
         {
-            "rank": i + 1, "id": item["id"],
+            "rank": i + 1,
+            "id": item["id"],
             "combined_score": item["combined_score"],
             "vector_score": item["vector_score"],
             "bm25_score": item["bm25_score"],
@@ -274,17 +274,19 @@ def retrieve_context(question: str, n_results: int = 25):
 @app.get("/inspect/chunks")
 def inspect_chunks():
     all_docs = collection.get(include=["documents", "metadatas"])
-    return {"chunks": [
-        {
-            "id": all_docs["ids"][i],
-            "text": all_docs["metadatas"][i].get("original_text", all_docs["documents"][i]),
-            "keywords": all_docs["metadatas"][i].get("keywords", ""),
-            "source_file": all_docs["metadatas"][i].get("source_file", ""),
-            "section": all_docs["metadatas"][i].get("section", ""),
-            "enriched": all_docs["documents"][i],
-        }
-        for i in range(len(all_docs["ids"]))
-    ]}
+    return {
+        "chunks": [
+            {
+                "id": all_docs["ids"][i],
+                "text": all_docs["metadatas"][i].get("original_text", all_docs["documents"][i]),
+                "keywords": all_docs["metadatas"][i].get("keywords", ""),
+                "source_file": all_docs["metadatas"][i].get("source_file", ""),
+                "section": all_docs["metadatas"][i].get("section", ""),
+                "enriched": all_docs["documents"][i],
+            }
+            for i in range(len(all_docs["ids"]))
+        ]
+    }
 
 
 class InspectSearchRequest(BaseModel):
@@ -309,12 +311,14 @@ class FeedbackRequest(BaseModel):
 
 @app.post("/feedback")
 def submit_feedback(req: FeedbackRequest):
-    log_interaction({
-        "timestamp": datetime.now(UTC).isoformat(),
-        "type": "feedback",
-        "message_id": req.message_id,
-        "rating": req.rating,
-    })
+    log_interaction(
+        {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "type": "feedback",
+            "message_id": req.message_id,
+            "rating": req.rating,
+        }
+    )
     return {"status": "ok"}
 
 
@@ -419,11 +423,16 @@ def get_log_stats():
 def build_debug(debug_chunks, top_score, verdict, retrieval_ms, llm_ms=0, rewritten_query=None):
     d = {
         "retrieved_chunks": debug_chunks[:5],
-        "top_score": top_score, "verdict": verdict,
-        "retrieval_ms": retrieval_ms, "llm_ms": llm_ms,
-        "model": MODEL, "embed_model": EMBED_MODEL,
-        "search_mode": "hybrid", "vector_weight": VECTOR_WEIGHT,
-        "bm25_weight": BM25_WEIGHT, "mode": "N/A",
+        "top_score": top_score,
+        "verdict": verdict,
+        "retrieval_ms": retrieval_ms,
+        "llm_ms": llm_ms,
+        "model": MODEL,
+        "embed_model": EMBED_MODEL,
+        "search_mode": "hybrid",
+        "vector_weight": VECTOR_WEIGHT,
+        "bm25_weight": BM25_WEIGHT,
+        "mode": "N/A",
     }
     if rewritten_query:
         d["rewritten_query"] = rewritten_query
@@ -455,18 +464,25 @@ def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False))
             "Versuche es mit einer anderen Formulierung oder einem anderen Stichwort, "
             "oder schau direkt in den Quellen nach."
         )
-        log_interaction({
-            "timestamp": datetime.now(UTC).isoformat(),
-            "message_id": message_id,
-            "question": req.message, "rewritten_query": rewritten,
-            "reply": reply, "mode": "REJECT",
-            "top_score": top_score,
-            "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
-            "retrieval_ms": retrieval_ms, "llm_ms": 0,
-        })
+        log_interaction(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "message_id": message_id,
+                "question": req.message,
+                "rewritten_query": rewritten,
+                "reply": reply,
+                "mode": "REJECT",
+                "top_score": top_score,
+                "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
+                "retrieval_ms": retrieval_ms,
+                "llm_ms": 0,
+            }
+        )
         result = {"reply": reply, "message_id": message_id}
         if show_debug:
-            result["debug"] = build_debug(debug_chunks, top_score, "below threshold - LLM skipped", retrieval_ms, rewritten_query=rewritten)
+            result["debug"] = build_debug(
+                debug_chunks, top_score, "below threshold - LLM skipped", retrieval_ms, rewritten_query=rewritten
+            )
             result["debug"]["mode"] = "REJECT"
         return result
 
@@ -480,29 +496,38 @@ def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False))
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": req.message},
         ],
-        max_tokens=300, temperature=0.3,
+        max_tokens=300,
+        temperature=0.3,
     )
     llm_ms = int((time.time() - llm_start) * 1000)
     reply = response.choices[0].message.content
 
     actual_mode = detect_llm_reject(reply) or mode
 
-    log_interaction({
-        "timestamp": datetime.now(UTC).isoformat(),
-        "message_id": message_id,
-        "question": req.message, "rewritten_query": rewritten,
-        "reply": reply, "mode": actual_mode,
-        "top_score": top_score,
-        "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
-        "retrieval_ms": retrieval_ms, "llm_ms": llm_ms,
-    })
+    log_interaction(
+        {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "message_id": message_id,
+            "question": req.message,
+            "rewritten_query": rewritten,
+            "reply": reply,
+            "mode": actual_mode,
+            "top_score": top_score,
+            "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
+            "retrieval_ms": retrieval_ms,
+            "llm_ms": llm_ms,
+        }
+    )
 
     result = {"reply": reply, "message_id": message_id}
     if show_debug:
         result["debug"] = build_debug(
-            debug_chunks, top_score,
+            debug_chunks,
+            top_score,
             "high confidence" if top_score >= HIGH_CONFIDENCE else "borderline",
-            retrieval_ms, llm_ms, rewritten_query=rewritten,
+            retrieval_ms,
+            llm_ms,
+            rewritten_query=rewritten,
         )
         result["debug"]["mode"] = actual_mode
     return result
@@ -513,9 +538,11 @@ def chat(req: ChatRequest, request: Request, debug: bool = Query(default=False))
 def chat_stream(req: ChatRequest, request: Request):
     client_ip = get_client_ip(request)
     if not rate_limiter.is_allowed(client_ip):
+
         def rate_limited():
             yield f"data: {json.dumps({'type': 'token', 'content': RATE_LIMIT_REPLY})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'mode': 'RATE_LIMITED'})}\n\n"
+
         return StreamingResponse(rate_limited(), media_type="text/event-stream")
 
     history = req.history or []
@@ -546,15 +573,20 @@ def chat_stream(req: ChatRequest, request: Request):
             )
             yield f"data: {json.dumps({'type': 'token', 'content': reply})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'mode': 'REJECT', 'message_id': message_id})}\n\n"
-            log_interaction({
-                "timestamp": datetime.now(UTC).isoformat(),
-                "message_id": message_id,
-                "question": req.message, "rewritten_query": rewritten,
-                "reply": reply, "mode": "REJECT",
-                "top_score": top_score,
-                "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
-                "retrieval_ms": retrieval_ms, "llm_ms": 0,
-            })
+            log_interaction(
+                {
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "message_id": message_id,
+                    "question": req.message,
+                    "rewritten_query": rewritten,
+                    "reply": reply,
+                    "mode": "REJECT",
+                    "top_score": top_score,
+                    "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
+                    "retrieval_ms": retrieval_ms,
+                    "llm_ms": 0,
+                }
+            )
             return
 
         mode = "ANSWER" if top_score >= HIGH_CONFIDENCE else "ANSWER_WITH_CAUTION"
@@ -569,7 +601,8 @@ def chat_stream(req: ChatRequest, request: Request):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": req.message},
             ],
-            max_tokens=300, temperature=0.3,
+            max_tokens=300,
+            temperature=0.3,
             stream=True,
         )
 
@@ -584,14 +617,19 @@ def chat_stream(req: ChatRequest, request: Request):
 
         yield f"data: {json.dumps({'type': 'done', 'mode': actual_mode, 'llm_ms': llm_ms, 'message_id': message_id})}\n\n"
 
-        log_interaction({
-            "timestamp": datetime.now(UTC).isoformat(),
-            "message_id": message_id,
-            "question": req.message, "rewritten_query": rewritten,
-            "reply": full_reply, "mode": actual_mode,
-            "top_score": top_score,
-            "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
-            "retrieval_ms": retrieval_ms, "llm_ms": llm_ms,
-        })
+        log_interaction(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "message_id": message_id,
+                "question": req.message,
+                "rewritten_query": rewritten,
+                "reply": full_reply,
+                "mode": actual_mode,
+                "top_score": top_score,
+                "top_chunk_id": debug_chunks[0]["id"] if debug_chunks else None,
+                "retrieval_ms": retrieval_ms,
+                "llm_ms": llm_ms,
+            }
+        )
 
     return StreamingResponse(generate(), media_type="text/event-stream")
