@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Patches chromadb in sys.modules before main.py is ever imported,
 # preventing 'Collection faq does not exist' errors at import time.
 
+
 @pytest.fixture(scope="session", autouse=True)
 def patch_chromadb_globally():
     mock_collection = MagicMock()
@@ -48,6 +49,7 @@ def patch_chromadb_globally():
 
 
 # ─── Shared fixtures ─────────────────────────────────────────
+
 
 @pytest.fixture
 def sample_history():
