@@ -181,7 +181,10 @@ def chunk_faq_legacy(file_path: str) -> list[dict]:
     current_answers = []
 
     skip_headers = {"Fragensammlung", "Beispiel:", "Mögliche Frage",
-                    "Mögliche Antwort", "Frage 1", "Frage 2", "Antwort"}
+                "Mögliche Antwort", "Frage 1", "Frage 2", "Antwort",
+                "Frage?",
+                "FORMAT-REGELN", "NEUE EINTRÄGE HIER EINFÜGEN ↓",
+                "BEISPIELE (NICHT LÖSCHEN — FORMATREFERENZ)"}
 
     for line in lines:
         line = line.strip()
@@ -190,7 +193,7 @@ def chunk_faq_legacy(file_path: str) -> list[dict]:
 
         if line.startswith("-->"):
             answer = line.lstrip("->").strip()
-            if answer:
+            if answer and answer != "Antwort":
                 current_answers.append(answer)
         elif "?" in line or line.endswith(":"):
             if current_question and current_answers:
